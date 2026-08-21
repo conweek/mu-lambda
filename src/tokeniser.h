@@ -5,7 +5,7 @@
         token.len  = size;              \
     } while (0)
 
-typedef enum token_t {
+typedef enum atomic_token_t {
     TOKEN_ERR,
     TOKEN_EOF,
     TOKEN_INT,
