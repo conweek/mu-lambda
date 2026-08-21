@@ -31,9 +31,15 @@ test-tokeniser: $(BUILDDIR)/tokeniser-test
 $(BUILDDIR)/tokeniser-test: $(TESTDIR)/tokeniser-test.c $(LIB_OBJS) | $(BUILDDIR)
 	$(CC) $(CFLAGS) $(DEFINES) -o $@ $< $(LIB_OBJS)
 
-test: test-tokeniser
+test-arena: $(BUILDDIR)/test_arena
+	./$(BUILDDIR)/test_arena
+
+$(BUILDDIR)/test_arena: $(TESTDIR)/test_arena.c $(LIB_OBJS) | $(BUILDDIR)
+	$(CC) $(CFLAGS) $(DEFINES) -o $@ $< $(LIB_OBJS)
+
+test: test-tokeniser test-arena
 
 clean:
 	rm -rf $(BUILDDIR)
 
-.PHONY: all clean test test-tokeniser
+.PHONY: all clean test test-tokeniser test-arena
