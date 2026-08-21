@@ -1,3 +1,6 @@
+#ifndef TOKENISER_H_
+#define TOKENISER_H_
+
 #define UPDATE_TOKEN(type, s, size)     \
     do {                                \
         token.token = type;             \
@@ -41,3 +44,5 @@ typedef struct Token {
 token_t tokenise(char** str);
 
 token_t* get_token_list(char** str);
+
+#endif 
