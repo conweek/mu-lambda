@@ -1,5 +1,5 @@
-#ifndef MULAMBDA_READ_H
-#define MULAMBDA_READ_H
+#ifndef MU_READ_H
+#define MU_READ_H
 
 #include <stddef.h>
 

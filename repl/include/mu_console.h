@@ -1,5 +1,5 @@
-#ifndef MULAMBDA_CONSOLE_H
-#define MULAMBDA_CONSOLE_H
+#ifndef MU_CONSOLE_H
+#define MU_CONSOLE_H
 
 #include <stdbool.h>
 #include <stddef.h>

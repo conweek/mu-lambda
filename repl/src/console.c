@@ -5,7 +5,7 @@
 #include <zephyr/drivers/uart.h>
 #include <zephyr/kernel.h>
 
-#include "mulambda/console.h"
+#include "mu_console.h"
 
 #define RXBUF 256
 #define CTRL_C 0x03

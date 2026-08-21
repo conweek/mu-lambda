@@ -2,8 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "mulambda/console.h"
-#include "mulambda/read.h"
+#include "mu_console.h"
+#include "mu_read.h"
 
 #define KEY_DEL 127
 #define KEY_BS 8

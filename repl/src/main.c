@@ -1,5 +1,5 @@
-#include "mulambda/console.h"
-#include "mulambda/read.h"
+#include "mu_console.h"
+#include "mu_read.h"
 
 #define LINE_MAX 128
 #define BANNER "μλ REPL\r\n"
