@@ -245,6 +245,123 @@ value_t* builtin_i2c_write(value_t* arg) {
     return val;
 }
 
+typedef struct {
+    const struct device* i2c;
+    uint16_t addr;
+    uint8_t reg;
+} i2c_reg_ctx_t;
+
+static value_t* i2c_reg_write_val(void* ctx, value_t* arg) {
+    if (!arg || arg->valueType != VAR_INT) {
+        BUILTIN_ERR("i2cRegWrite");
+    }
+
+    i2c_reg_ctx_t* c = (i2c_reg_ctx_t*)ctx;
+    uint8_t buf[2] = { c->reg, (uint8_t)arg->value.integer };
+
+    int ret = i2c_write(c->i2c, buf, 2, c->addr);
+    if (ret < 0) {
+        printk("[!] Error: i2cRegWrite failed (%d)\n", ret);
+        return make_error();
+    }
+
+    return make_no_result();
+}
+
+static value_t* i2c_reg_write_reg(void* ctx, value_t* arg) {
+    if (!arg || arg->valueType != VAR_INT) {
+        BUILTIN_ERR("i2cRegWrite");
+    }
+
+    i2c_reg_ctx_t* prev = (i2c_reg_ctx_t*)ctx;
+
+    i2c_reg_ctx_t* next = (i2c_reg_ctx_t*)memrina_alloc(mu_session, sizeof(i2c_reg_ctx_t));
+    if (!next) {
+        return NULL;
+    }
+
+    next->i2c = prev->i2c;
+    next->addr = prev->addr;
+    next->reg = (uint8_t)arg->value.integer;
+
+    value_t* val = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    if (!val) {
+        return NULL;
+    }
+
+    val->valueType = VAR_NATIVE_CLOSURE;
+    val->is_return = 0;
+    val->refcount = 1;
+    val->value.native.fn = i2c_reg_write_val;
+    val->value.native.ctx = next;
+
+    return val;
+}
+
+static value_t* i2c_reg_write_addr(void* ctx, value_t* arg) {
+    if (!arg || arg->valueType != VAR_INT) {
+        BUILTIN_ERR("i2cRegWrite");
+    }
+
+    i2c_reg_ctx_t* prev = (i2c_reg_ctx_t*)ctx;
+
+    i2c_reg_ctx_t* next = (i2c_reg_ctx_t*)memrina_alloc(mu_session, sizeof(i2c_reg_ctx_t));
+    if (!next) {
+        return NULL;
+    }
+
+    next->i2c = prev->i2c;
+    next->addr = (uint16_t)arg->value.integer;
+    next->reg = 0;
+
+    value_t* val = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    if (!val) {
+        return NULL;
+    }
+
+    val->valueType = VAR_NATIVE_CLOSURE;
+    val->is_return = 0;
+    val->refcount = 1;
+    val->value.native.fn = i2c_reg_write_reg;
+    val->value.native.ctx = next;
+
+    return val;
+}
+
+value_t* builtin_i2c_reg_write(value_t* arg) {
+    if (!arg || arg->valueType != VAR_STRING) {
+        BUILTIN_ERR("i2cRegWrite");
+    }
+
+    const struct device* i2c = device_get_binding(arg->value.string);
+    if (!i2c || !device_is_ready(i2c)) {
+        printk("[!] Error: i2cRegWrite device '%s' not ready\n", arg->value.string);
+        return make_error();
+    }
+
+    i2c_reg_ctx_t* ctx = (i2c_reg_ctx_t*)memrina_alloc(mu_session, sizeof(i2c_reg_ctx_t));
+    if (!ctx) {
+        return NULL;
+    }
+
+    ctx->i2c = i2c;
+    ctx->addr = 0;
+    ctx->reg = 0;
+
+    value_t* val = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    if (!val) {
+        return NULL;
+    }
+
+    val->valueType = VAR_NATIVE_CLOSURE;
+    val->is_return = 0;
+    val->refcount = 1;
+    val->value.native.fn = i2c_reg_write_addr;
+    val->value.native.ctx = ctx;
+
+    return val;
+}
+
 static value_t* i2c_read_addr(void* ctx, value_t* arg) {
     if (!arg || arg->valueType != VAR_INT) {
         BUILTIN_ERR("i2cRead");

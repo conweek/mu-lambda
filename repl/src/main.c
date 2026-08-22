@@ -61,6 +61,7 @@ int main(void) {
     register_builtin(env, "gpioRead", builtin_gpio_read);
     register_builtin(env, "i2cWrite", builtin_i2c_write);
     register_builtin(env, "i2cRead", builtin_i2c_read);
+    register_builtin(env, "i2cRegWrite", builtin_i2c_reg_write);
 
     mu_write(BANNER, sizeof(BANNER) - 1);
 
