@@ -199,11 +199,12 @@ ast_node_t* parse_statement(parser_t* p) {
             parser_match(p, TOKEN_ASSIGNMENT); // skip over the '='
             return make_node(NODE_ASSIGN, tok, parse_expr_statement(p), NULL);
         } else {
-            // a bare identifier is not a valid statement
-            // TODO: Change to printk/LOGERR for Zephyr
-            fprintf(stderr, "parse error: unexpected token %d, expected a statement\n", tok.token);
-            p->error = true;
-            return make_node(NODE_ERROR, tok, NULL, NULL);
+            ast_node_t* left = make_node(NODE_VAR, tok, NULL, NULL);
+            while (is_atomic_start(parser_current(p).token)) {
+                ast_node_t* arg = is_lambda_start(p) ? parse_lambda(p) : parse_atomic(p);
+                left = make_node(NODE_APPLY, tok, left, arg);
+            }
+            return left;
         }
     default:
         // TODO: Change to printk/LOGERR for Zephyr
@@ -327,12 +328,6 @@ ast_node_t* parse_lambda(parser_t* p) {
     parser_match(p, TOKEN_CLOSEPAREN);
 
     ast_node_t* node = make_node(NODE_LAMBDA, tok, params, body);
-
-    while (is_atomic_start(parser_current(p).token)) {
-        ast_node_t* arg = parse_atomic(p);
-        node = make_node(NODE_APPLY, tok, node, arg);
-    }
-
     return node;
 }
 
@@ -343,7 +338,17 @@ ast_node_t* parse_expr_statement(parser_t* p) {
 
 // comparison = (lambda | term) [op (lambda | term)]
 ast_node_t* parse_comparison(parser_t* p) {
-    ast_node_t* left = is_lambda_start(p) ? parse_lambda(p) : parse_term(p);
+    ast_node_t* left;
+    if (is_lambda_start(p)) {
+        left = parse_lambda(p);
+        while (is_atomic_start(parser_current(p).token)) {
+            ast_node_t* arg = is_lambda_start(p) ? parse_lambda(p) : parse_atomic(p);
+            left = make_node(NODE_APPLY, left->token, left, arg);
+        }
+    } else {
+        left = parse_term(p);
+    }
+
     token_t tok = parser_current(p);
 
     if (is_op(tok.token)) {
@@ -409,7 +414,7 @@ ast_node_t* parse_call(parser_t* p) {
     ast_node_t* left = make_node(NODE_VAR, tok, NULL, NULL);
 
     while (is_atomic_start(parser_current(p).token)) {
-        ast_node_t* arg = parse_atomic(p);
+        ast_node_t* arg = is_lambda_start(p) ? parse_lambda(p) : parse_atomic(p);
         left = make_node(NODE_APPLY, tok, left, arg);
     }
 

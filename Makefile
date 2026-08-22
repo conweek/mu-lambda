@@ -43,9 +43,27 @@ test-parser: $(BUILDDIR)/parser-test
 $(BUILDDIR)/parser-test: $(TESTDIR)/parser-test.c $(LIB_OBJS) | $(BUILDDIR)
 	$(CC) $(CFLAGS) $(DEFINES) -o $@ $< $(LIB_OBJS)
 
-test: test-tokeniser test-arena test-parser
+test-interpreter: $(BUILDDIR)/interpreter-test
+	./$(BUILDDIR)/interpreter-test
+
+$(BUILDDIR)/interpreter-test: $(TESTDIR)/interpreter-test.c $(LIB_OBJS) | $(BUILDDIR)
+	$(CC) $(CFLAGS) $(DEFINES) -o $@ $< $(LIB_OBJS)
+
+test-parser-suite: $(BUILDDIR)/parser-suite
+	./$(BUILDDIR)/parser-suite
+
+$(BUILDDIR)/parser-suite: $(TESTDIR)/parser-suite.c $(LIB_OBJS) | $(BUILDDIR)
+	$(CC) $(CFLAGS) $(DEFINES) -o $@ $< $(LIB_OBJS)
+
+test-interpreter-suite: $(BUILDDIR)/interpreter-suite
+	./$(BUILDDIR)/interpreter-suite
+
+$(BUILDDIR)/interpreter-suite: $(TESTDIR)/interpreter-suite.c $(LIB_OBJS) | $(BUILDDIR)
+	$(CC) $(CFLAGS) $(DEFINES) -o $@ $< $(LIB_OBJS)
+
+test: test-tokeniser test-arena test-parser test-parser-suite test-interpreter-suite
 
 clean:
 	rm -rf $(BUILDDIR)
 
-.PHONY: all clean test test-tokeniser test-arena test-parser
+.PHONY: all clean test test-tokeniser test-arena test-parser test-parser-suite test-interpreter test-interpreter-suite
