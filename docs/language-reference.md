@@ -8,14 +8,16 @@ This language is a mix of Haskell and Python, you will come to see this in the f
 
 μλ does **NOT** use any semi-colon or line ending delimiters (other than `\n`). In addition, it does **NOT** support for-loops (as it is a functional language). μλ also does **NOT** support pattern matching.
 
-### Supported Data Types:
+### Supported Data Types
     - Integers
     - Strings
-    - Lists (of integers and strings)
 
-### Supported Keywords:
+*Note: list syntax (`[...]`) is recognised by the tokeniser but not yet accepted by the parser, so list literals cannot currently be used in a program.*
+
+### Supported Keywords
     - fn (function)
     - ts (tail call signal)
+    - ep (entry point)
     - return
     - if
     - else
@@ -23,21 +25,46 @@ This language is a mix of Haskell and Python, you will come to see this in the f
 ### Supported Operators
     - +
     - -
+    - *
+    - /
     - >
     - <
     - =
     - ==
     - !=
 
+### Comments
+
+Line comments start with `//` and run to the end of the line:
+
+```
+// this whole line is ignored
+x = 1 // so is this part of the line
+```
+
 ### Supported Functions
+
     - print
-    - getLine
+
+*Note: this is currently the only built-in function registered with the interpreter. Things like `getLine`, `int`, and list operations are planned but not implemented yet — programs relying on them will fail at runtime.*
 
 ## Variables
 
 Variables can be declared like in any other language: `var = 10` (this creates a new variable called `var` which is assigned the integer value `10`).
 
-Variables are **IMMUTABLE** to maintain purity.
+Variables are **IMMUTABLE** to maintain purity — re-assigning a name that already exists in the current scope is a runtime error.
+
+## Entry Point
+
+A program's entry point is marked with the `ep` keyword prepended to a function definition (regular or tail recursive). It must appear once, after every other top-level statement, and the function it marks must take no arguments:
+
+```
+ep fn main -> :
+    ...
+end
+```
+
+When the interpreter runs a program, it looks up the `ep`-marked function and calls it. If that function's body returns the function itself (i.e. `return main`), the entry point loops and calls it again instead of terminating — this is how a `main` function can repeat itself, since μλ has no other looping construct.
 
 ## Functions
 
@@ -67,6 +94,22 @@ To call a function, you use the following Haskell-like notation *(noting args co
 
 ```
 result = name args
+```
+
+### Currying and Partial Application
+
+Calling a function with fewer arguments than it declares does not fail — it returns a new function bound to the arguments supplied so far, waiting on the rest:
+
+```
+fn add -> a b:
+    return a + b
+end
+
+add5 = add 5
+
+ep fn main -> :
+    return add5 10  // 15
+end
 ```
 
 ### Tail Recursive Functions
@@ -100,6 +143,29 @@ and used as such:
 result = succ 1
 ```
 
+Lambdas capture the environment they were created in, so closures work as expected:
+
+```
+fn makeAdder -> n:
+    return (\x -> x + n)
+end
+
+ep fn main -> :
+    add10 = makeAdder 10
+    return add10 32  // 42
+end
+```
+
+## Arithmetic
+
+`*` and `/` bind tighter than `+` and `-`, following normal mathematical precedence:
+
+```
+x = 2 + 3 * 4  // 14, not 20
+```
+
+Division by zero is a runtime error.
+
 ## If Statements
 
 ### If
@@ -126,37 +192,20 @@ end
 
 ## Example program
 
-A simple non-pure example program can be found here:
+A simple example program, tail-recursively computing a factorial and printing the result:
 
 ```
-// Tail recursively calculates factorial
-ts fn fact -> ans curr:
-    
-    if curr == 1:
-        return ans
+ts fn fact -> acc n:
+    if n == 0:
+        return acc
+    else:
+        return fact (acc * n) (n - 1)
     end
-
-    return (fact (ans * curr) (curr - 1))
-
-// Recursively polls for input
-ts fn handle_input -> currInput:
-    
-    if currInput != "":
-        return (int (currInput)) 
-
-    return (handle_input getLine)
-
-// This is not a purely tail recursive function, but may be fine?
-ts fn main -> :
-    print "Please enter a number: "
-    input = handle_input ""
-
-    result = fact input
-
-    print "Generated following result:"
-    print result
-
-    return main
 end
 
+ep fn main -> :
+    result = fact 1 5
+    print result
+    return result
+end
 ```

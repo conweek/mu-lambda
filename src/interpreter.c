@@ -296,6 +296,8 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
 {
 
     switch (node->type) {
+        case NODE_ERROR:
+            return NULL; // Unreachable
         case NODE_INT:
             return convert_value(NODE_INT, node->token.str, node->token.len);
         case NODE_STR:
