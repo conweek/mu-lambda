@@ -1,6 +1,7 @@
 #include "memory-arena.h"
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 // Round n up to the next multiple of align. align must be a power of two
 static uintptr_t align_up(uintptr_t n, size_t align) {
@@ -70,6 +71,44 @@ void *memrina_calloc(Memrina *arena, size_t nbytes) {
       point[i] = 0;
     }
   }
+  return ptr;
+}
+
+void *memrina_alloc_array(Memrina *arena, size_t count, size_t size) {
+  // Reject a count that would wrap when multiplied out
+  if (size != 0 && count > (size_t)-1 / size) {
+    return NULL;
+  }
+
+  return memrina_alloc(arena, count * size);
+}
+
+void *memrina_memdup(Memrina *arena, const void *src, size_t nbytes) {
+  if (src == NULL) {
+    return NULL;
+  }
+
+  void *ptr = memrina_alloc(arena, nbytes);
+
+  if (ptr != NULL) {
+    memcpy(ptr, src, nbytes);
+  }
+
+  return ptr;
+}
+
+char *memrina_strndup(Memrina *arena, const char *src, size_t len) {
+  if (src == NULL) {
+    return NULL;
+  }
+
+  char *ptr = memrina_alloc(arena, len + 1);
+
+  if (ptr != NULL) {
+    memcpy(ptr, src, len);
+    ptr[len] = '\0';
+  }
+
   return ptr;
 }
 

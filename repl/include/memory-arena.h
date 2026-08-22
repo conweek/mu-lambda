@@ -42,6 +42,15 @@ void *memrina_alloc(Memrina *arena, size_t nbytes);
 // zero-initialized allocation like calloc
 void *memrina_calloc(Memrina *arena, size_t nbytes);
 
+// allocates count items of size bytes each, returns NULL if the multiply would overflow
+void *memrina_alloc_array(Memrina *arena, size_t count, size_t size);
+
+// copies nbytes from src into the arena
+void *memrina_memdup(Memrina *arena, const void *src, size_t nbytes);
+
+// copies len bytes of src into the arena and null terminates it
+char *memrina_strndup(Memrina *arena, const char *src, size_t len);
+
 // take a checkpoint of the current memory block
 Memrina_Checkpoint memrina_set_check(Memrina *arena);
 

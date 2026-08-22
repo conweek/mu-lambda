@@ -3,8 +3,8 @@
 
 #include "parser.h"
 
-#define BINDING_ERR -1
-#define SUCCESS 0
+#define MU_BINDING_ERR -1
+#define MU_SUCCESS 0
 #define SCOPED_CASE(name) case name: {
 #define END_SCOPE }
 
