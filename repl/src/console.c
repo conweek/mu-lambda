@@ -7,7 +7,7 @@
 
 #include "mu_console.h"
 
-#define RXBUF 256
+#define RXBUF 4096
 #define CTRL_C 0x03
 
 BUILD_ASSERT((RXBUF & (RXBUF - 1)) == 0, "RXBUF must be a power of two");
@@ -32,7 +32,7 @@ static int rx_hook(uint8_t ch) {
     rxbuf[i_put] = ch;
     i_put = next;
   } else {
-    // Ring full, byte lost
+    // Ring full, byte lost, raise flag
     dropped = true;
   }
 
@@ -53,12 +53,17 @@ int mu_console_init(void) {
 }
 
 int mu_getchar(void) {
-  while (i_get == i_put) {
-    // Whoever reports the flag resets it
+  for (;;) {
+    // Checked first so interrupts dont get queued behind the buffered inputs
     if (ctrl_c) {
       ctrl_c = false;
       return -1;
     }
+
+    if (i_get != i_put) {
+      break;
+    }
+
     k_msleep(1);
   }
 

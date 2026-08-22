@@ -7,6 +7,10 @@
 
 #define KEY_DEL 127
 #define KEY_BS 8
+#define KEY_CTRL_D 4
+#define KEY_CTRL_E 5
+#define KEY_TAB 9
+#define TAB_WIDTH 4
 
 // Escape sequences
 enum { ESEQ_NONE, ESEQ_ESC, ESEQ_ESC_BRACKET, ESEQ_ESC_O };
@@ -46,6 +50,22 @@ static void cursor_left(size_t n) {
   }
 }
 
+/* When all chars before cursor are spaces, backspace deletes up to the next
+ * indent level (multiples of 4 spaces) */
+static size_t indent_before(const char *buf, size_t cursor) {
+  size_t del;
+
+  for (size_t i = 0; i < cursor; i++) {
+    if (buf[i] != ' ') {
+      return 1;
+    }
+  }
+
+  del = cursor % TAB_WIDTH;
+
+  return del == 0 ? TAB_WIDTH : del;
+}
+
 /* Reprint from cursor to end of line, erase leftovers, put cursor back */
 static void redraw_tail(const char *buf, size_t len, size_t cursor) {
   mu_write(&buf[cursor], len - cursor);
@@ -68,8 +88,9 @@ int mu_readline(char *buf, size_t cap, const char *prompt) {
 
   for (;;) {
     int c = mu_getchar();
+    int repeat = 1;
 
-    // Input was lost, the line cannot be trusted
+    // Input dropped
     if (mu_dropped()) {
       mu_write("\r\ninput dropped\r\n", 17);
       buf[0] = '\0';
@@ -151,15 +172,36 @@ int mu_readline(char *buf, size_t cap, const char *prompt) {
       return (int)len;
     }
 
+    // Only works on an empty line to mitigate fat fingering
+    if (c == KEY_CTRL_D && len == 0) {
+      // Only break the line if there is a prompt sitting on it
+      if (prompt[0] != '\0') {
+        mu_write("\r\n", 2);
+      }
+      return MU_LINE_EOF;
+    }
+
+    if (c == KEY_CTRL_E && len == 0) {
+      return MU_LINE_BATCH;
+    }
+
     if (c == KEY_DEL || c == KEY_BS) { // delete before cursor
       if (cursor > 0) {
-        memmove(&buf[cursor - 1], &buf[cursor], len - cursor);
-        cursor--;
-        len--;
-        cursor_left(1);
+        size_t del = indent_before(buf, cursor);
+
+        memmove(&buf[cursor - del], &buf[cursor], len - cursor);
+        cursor -= del;
+        len -= del;
+        cursor_left(del);
         redraw_tail(buf, len, cursor);
       }
       continue;
+    }
+
+    // Tab indents with spaces
+    if (c == KEY_TAB) {
+      c = ' ';
+      repeat = TAB_WIDTH;
     }
 
     // Drop remaining
@@ -167,21 +209,23 @@ int mu_readline(char *buf, size_t cap, const char *prompt) {
       continue;
     }
 
-    if (len + 1 >= cap) { // leave room for null terminator
-      mu_putchar('\a');
-      continue;
-    }
+    while (repeat-- > 0) {
+      if (len + 1 >= cap) { // leave room for null terminator
+        mu_putchar('\a');
+        break;
+      }
 
-    // Insert at cursor and shift the tail
-    memmove(&buf[cursor + 1], &buf[cursor], len - cursor);
-    buf[cursor] = (char)c;
-    len++;
-    cursor++;
-    mu_putchar((char)c);
+      // Insert at cursor and shift the tail
+      memmove(&buf[cursor + 1], &buf[cursor], len - cursor);
+      buf[cursor] = (char)c;
+      len++;
+      cursor++;
+      mu_putchar((char)c);
 
-    // No reprint needed when appending
-    if (cursor < len) {
-      redraw_tail(buf, len, cursor);
+      // No reprint needed when appending
+      if (cursor < len) {
+        redraw_tail(buf, len, cursor);
+      }
     }
   }
 }
