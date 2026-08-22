@@ -1,6 +1,7 @@
+#include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <zephyr/kernel.h>
+#include "mu_arena.h"
 #include "tokeniser.h"
 
 token_t tokenise(char** str) {
@@ -187,11 +188,9 @@ token_t tokenise(char** str) {
 }
 
 token_t* get_token_list(char** str) {
-    // Worst case, str is entirely packed with valid tokens
-    // (to be replaced with memory arena)
-    token_t* tokenList = (token_t*)k_malloc(sizeof(token_t) * strlen(*str));
+    // Worst case is one token per character, plus the EOF token
+    token_t* tokenList = memrina_alloc_array(mu_scratch, strlen(*str) + 1, sizeof(token_t));
 
-    // Check k_malloc succeeded
     if (!tokenList) {
         return NULL;
     }

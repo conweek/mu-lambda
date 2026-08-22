@@ -80,7 +80,7 @@ value_t* env_lookup(env_t* env, char* name, int nameLen);
 value_t* evaluate(ast_node_t* node, env_t* env);
 value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall);
 void register_builtin(env_t* env, const char* name, builtin_fn fn);
-value_t* run_interpreter(char* source);
+value_t* run_interpreter(char* source, env_t* env);
 value_t* make_no_result();
 value_t* make_error();
 value_t* make_int(int val);
