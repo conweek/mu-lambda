@@ -11,22 +11,19 @@
 i2cRegWrite "i2c1" 29 42 1
 sleep 20
 
+// partially apply device and addr for reuse
+rd = i2cRegRead "i2c1" 29
+
 ep fn main -> :
-    // set pointer to OUT_X_MSB then read
-    i2cWrite "i2c1" 29 1
-    xval = i2cRead "i2c1" 29
+    xval = rd 1
     print "X:"
     print xval
 
-    // set pointer to OUT_Y_MSB then read
-    i2cWrite "i2c1" 29 3
-    yval = i2cRead "i2c1" 29
+    yval = rd 3
     print "Y:"
     print yval
 
-    // set pointer to OUT_Z_MSB then read
-    i2cWrite "i2c1" 29 5
-    zval = i2cRead "i2c1" 29
+    zval = rd 5
     print "Z:"
     print zval
 
