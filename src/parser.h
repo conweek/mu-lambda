@@ -6,9 +6,9 @@
 typedef enum node_type_t {
     NODE_INT,
     NODE_STR,
-    NODE_LIST,
     NODE_VAR,
     NODE_BINOP,
+    NODE_NEG,
     NODE_ASSIGN,
     NODE_IF,
     NODE_FN,
@@ -16,7 +16,6 @@ typedef enum node_type_t {
     NODE_APPLY,
     NODE_RETURN,
     NODE_TAILCALL,
-    NODE_DOLLAR,
     NODE_BLOCK
 }node_type_t;
 
@@ -45,11 +44,10 @@ ast_node_t* parse_statement(parser_t* p);
 ast_node_t* parse_if(parser_t* p);
 ast_node_t* parse_fn(parser_t* p, int tailcall);
 ast_node_t* parse_lambda(parser_t* p);
-ast_node_t* parse_expr(parser_t* p);
-ast_node_t* parse_dollar(parser_t* p);
+ast_node_t* parse_expr_statement(parser_t* p);
 ast_node_t* parse_comparison(parser_t* p);
-ast_node_t* parse_addition(parser_t* p);
-ast_node_t* parse_application(parser_t* p);
+ast_node_t* parse_term(parser_t* p);
+ast_node_t* parse_call(parser_t* p);
 ast_node_t* parse_atomic(parser_t* p);
 
 #endif

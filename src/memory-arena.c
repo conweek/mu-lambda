@@ -1,4 +1,5 @@
 #include "memory-arena.h"
+#include <stdint.h>
 #include <stdlib.h>
 
 // Round n up to the next multiple of align. align must be a power of two
@@ -7,12 +8,12 @@ static size_t align_up(size_t n, size_t align) {
 }
 
 Memrina* memrina_create(size_t size) {
-    Memrina* memrina = malloc(sizeof(Memrina));
+    Memrina* memrina = malloc(sizeof(Memrina) + size);
 
     if (memrina == NULL) {
         return NULL;
     }
-    uint8_t* buffer = malloc(size);
+    uint8_t* buffer = (uint8_t*) memrina + 1;
 
     if (buffer == NULL) {
         free(memrina);

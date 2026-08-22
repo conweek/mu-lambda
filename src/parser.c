@@ -20,10 +20,22 @@ static ast_node_t* make_node(node_type_t type, token_t token, ast_node_t* left, 
     return node;
 }
 
-// Returns whether a token is atomic (int, str, list, identifier, openparen)
+// Returns whether a token is atomic (int, str, identifier, openparen)
 static int is_atomic_start(atomic_token_t t)
 {
-    return (t == TOKEN_INT || t == TOKEN_STR || t == TOKEN_LIST || t == TOKEN_IDENTIFIER || t == TOKEN_OPENPAREN);
+    return (t == TOKEN_INT || t == TOKEN_STR || t == TOKEN_IDENTIFIER || t == TOKEN_OPENPAREN);
+}
+
+// Returns whether a comparison operator token follows
+static int is_op(atomic_token_t t)
+{
+    return (t == TOKEN_EQUALTO || t == TOKEN_NOTEQUALTO || t == TOKEN_GREATERTHAN || t == TOKEN_LESSTHAN);
+}
+
+// Returns whether the parser is positioned at a lambda literal: "(" "\"
+static int is_lambda_start(parser_t* p)
+{
+    return (parser_current(p).token == TOKEN_OPENPAREN && p->tokens[p->pos + 1].token == TOKEN_LAMBDA);
 }
 
 // Creates a new parser instance
@@ -71,8 +83,10 @@ void parser_skip_newlines(parser_t* p)
         parser_advance(p);
 }
 
-// program → (statement NEWLINE*)* EOF
-// Parses a whole program
+// program = { statement NEWLINE } [ EP ( tsStatement | fnStatement ) NEWLINE ] EOF
+// Parses a whole program: zero or more top-level statements (REPL-style),
+// optionally followed by an EP-marked entry point function for running a
+// full file. If present, EP's function must be the last thing in the file.
 ast_node_t* parse_program(parser_t* p)
 {
     ast_node_t* root = NULL;
@@ -80,7 +94,7 @@ ast_node_t* parse_program(parser_t* p)
 
     parser_skip_newlines(p);
 
-    while (parser_current(p).token != TOKEN_EOF) {
+    while (parser_current(p).token != TOKEN_EOF && parser_current(p).token != TOKEN_ENTRYPOINT) {
 
         if (parser_current(p).token == TOKEN_COMMENT) {
             parser_advance(p);
@@ -102,16 +116,43 @@ ast_node_t* parse_program(parser_t* p)
         parser_skip_newlines(p);
     }
 
+    if (parser_current(p).token == TOKEN_ENTRYPOINT) {
+        parser_advance(p);
+
+        ast_node_t* entry;
+
+        if (parser_current(p).token == TOKEN_TAILCALL)
+            entry = parse_fn(p, 1);
+        else if (parser_current(p).token == TOKEN_FUNCTION)
+            entry = parse_fn(p, 0);
+        else {
+            // TODO: Change to printk/LOGERR for Zephyr
+            fprintf(stderr, "parse error: EP must be followed by a function definition, got token %d\n", parser_current(p).token);
+            exit(1);
+        }
+
+        ast_node_t* block = make_node(NODE_BLOCK, parser_current(p), entry, NULL);
+
+        if (!root) {
+            root = block;
+            tail = block;
+        } else {
+            tail->right = block;
+            tail = block;
+        }
+
+        parser_skip_newlines(p);
+    }
+
+    parser_expect(p, TOKEN_EOF);
     return root;
 }
 
-// block → COLON NEWLINE* statement (NEWLINE+ statement)* NEWLINE* END
-// Parses block of statements
+// block = statement NEWLINE { statement NEWLINE } END
+// Parses a list of statements up to END. The caller is responsible for
+// consuming whatever precedes the block (e.g. fnStatement's COLON NEWLINE).
 ast_node_t* parse_block(parser_t* p)
 {
-    parser_expect(p, TOKEN_COLON);
-    parser_skip_newlines(p);
-
     ast_node_t* root = NULL;
     ast_node_t* tail = NULL;
 
@@ -141,8 +182,9 @@ ast_node_t* parse_block(parser_t* p)
     return root;
 }
 
-// statement → fn | ts | if | return | assignment | expr
-// Parses a statement of some kind
+// statement = fnStatement | tsStatement | ifStatement | returnStatement | assignmentStatement
+// Parses a statement of some kind. A bare exprStatement (e.g. a lone call
+// with no assignment) is not a valid statement on its own.
 ast_node_t* parse_statement(parser_t* p)
 {
     token_t tok = parser_current(p);
@@ -154,29 +196,35 @@ ast_node_t* parse_statement(parser_t* p)
             return parse_fn(p, 0);
         case TOKEN_TAILCALL:
             return parse_fn(p, 1);
-        case TOKEN_RETURN:
+        case TOKEN_RETURN: {
             parser_advance(p);
-            ast_node_t* val = parse_expr(p);
+            ast_node_t* val = parse_expr_statement(p);
             return make_node(NODE_RETURN, tok, val, NULL);
+        }
         case TOKEN_IDENTIFIER:
             if (p->tokens[p->pos + 1].token == TOKEN_ASSIGNMENT) {
                 token_t name = parser_advance(p);
                 parser_advance(p);
-                ast_node_t* val = parse_expr(p);
+                ast_node_t* val = parse_expr_statement(p);
                 return make_node(NODE_ASSIGN, name, val, NULL);
             }
-            return parse_expr(p);
+            // a bare identifier is not a valid statement
+            // TODO: Change to printk/LOGERR for Zephyr
+            fprintf(stderr, "parse error: unexpected token %d, expected a statement\n", tok.token);
+            exit(1);
+        // TODO: Change to printk/LOGERR for Zephyr
         default:
-            return parse_expr(p);
+            fprintf(stderr, "parse error: unexpected token %d, expected a statement\n", tok.token);
+            exit(1);
     }
 }
 
-// if → IF expr COLON statements (ELSE COLON statements)? END
+// ifStatement = IF exprStatement COLON NEWLINE { statement NEWLINE } [ ELSE COLON NEWLINE { statement NEWLINE } ] END
 // Parses if/else statements
 ast_node_t* parse_if(parser_t* p)
 {
     token_t tok = parser_expect(p, TOKEN_IF);
-    ast_node_t* cond = parse_expr(p);
+    ast_node_t* cond = parse_expr_statement(p);
     parser_expect(p, TOKEN_COLON);
     parser_skip_newlines(p);
 
@@ -233,8 +281,8 @@ ast_node_t* parse_if(parser_t* p)
     return node;
 }
 
-// fn  → FN IDENTIFIER ARROW params block
-// ts  → TC FN IDENTIFIER ARROW params block
+// fnStatement = FN IDENTIFIER ARROW { IDENTIFIER } COLON NEWLINE block
+// tsStatement = TS fnStatement
 // Parses both regular and tail recursive functions
 ast_node_t* parse_fn(parser_t* p, int tailcall)
 {
@@ -262,113 +310,116 @@ ast_node_t* parse_fn(parser_t* p, int tailcall)
         }
     }
 
+    parser_expect(p, TOKEN_COLON);
+    parser_skip_newlines(p);
+
     ast_node_t* body = parse_block(p);
     node_type_t type = tailcall ? NODE_TAILCALL : NODE_FN;
     ast_node_t* node = make_node(type, name, params, body);
     return node;
 }
 
-// lambda → LAMBDA params ARROW expr
-// Parses a lambda function into its components
+// lambda = OPENPAREN LAMBDA IDENTIFIER { IDENTIFIER } ARROW exprStatement CLOSEPAREN [ atomic { atomic } ]
+// Parses a lambda literal, plus any arguments it is immediately applied to
 ast_node_t* parse_lambda(parser_t* p)
 {
+    parser_expect(p, TOKEN_OPENPAREN);
     token_t tok = parser_expect(p, TOKEN_LAMBDA);
 
-    ast_node_t* params = NULL;
-    ast_node_t* ptail  = NULL;
+    token_t first = parser_expect(p, TOKEN_IDENTIFIER);
+    ast_node_t* params = make_node(NODE_VAR, first, NULL, NULL);
+    ast_node_t* ptail  = params;
 
     while (parser_current(p).token == TOKEN_IDENTIFIER) {
         token_t param = parser_advance(p);
         ast_node_t* pnode = make_node(NODE_VAR, param, NULL, NULL);
-        
-        if (!params) {
-            params = pnode;
-            ptail  = pnode;
-        } else {
-            ptail->right = pnode;
-            ptail = pnode;
-        }
-
+        ptail->right = pnode;
+        ptail = pnode;
     }
 
     parser_expect(p, TOKEN_ARROW);
-    ast_node_t* body = parse_expr(p);
-    return make_node(NODE_LAMBDA, tok, params, body);
-}
+    ast_node_t* body = parse_expr_statement(p);
+    parser_expect(p, TOKEN_CLOSEPAREN);
 
-// expr → lambda | dollar
-// Parses symbols \ and $
-ast_node_t* parse_expr(parser_t* p)
-{
-    if (parser_current(p).token == TOKEN_LAMBDA)
-        return parse_lambda(p);
+    ast_node_t* node = make_node(NODE_LAMBDA, tok, params, body);
 
-    return parse_dollar(p);
-}
-
-// dollar → comparison ($ dollar)?
-ast_node_t* parse_dollar(parser_t* p)
-{
-    ast_node_t* left = parse_comparison(p);
-
-    if (parser_current(p).token == TOKEN_DOLLARSIGN) {
-        token_t tok = parser_advance(p);
-        ast_node_t* right = parse_dollar(p);
-        return make_node(NODE_DOLLAR, tok, left, right);
+    while (is_atomic_start(parser_current(p).token)) {
+        ast_node_t* arg = parse_atomic(p);
+        node = make_node(NODE_APPLY, tok, node, arg);
     }
 
-    return left;
+    return node;
 }
 
-// comparison → addition ((== | != | > | <) addition)?
-// Handles function result comparison function result
-// Handles atomic comparison atomic
+// exprStatement = comparison | lambda | term
+// Parses an expression statement
+ast_node_t* parse_expr_statement(parser_t* p)
+{
+    return parse_comparison(p);
+}
+
+// comparison = (lambda | term) op (lambda | term)
+// comparison's left-hand side is a (lambda | term), which is exactly
+// exprStatement's lambda/term fallthrough when no operator follows, so both
+// rules are implemented together here.
 ast_node_t* parse_comparison(parser_t* p)
 {
-    ast_node_t* left = parse_addition(p);
+    ast_node_t* left = is_lambda_start(p) ? parse_lambda(p) : parse_term(p);
     token_t tok = parser_current(p);
 
-    if (tok.token == TOKEN_EQUALTO || tok.token == TOKEN_NOTEQUALTO || tok.token == TOKEN_GREATERTHAN || tok.token == TOKEN_LESSTHAN) {
+    if (is_op(tok.token)) {
         parser_advance(p);
-        ast_node_t* right = parse_addition(p);
+        ast_node_t* right = is_lambda_start(p) ? parse_lambda(p) : parse_term(p);
         left = make_node(NODE_BINOP, tok, left, right);
     }
 
     return left;
 }
 
-// addition → application ((+ | -) application)*
-// Handles function result +- function result
-// Handles atomic +- atomic
-ast_node_t* parse_addition(parser_t* p)
+// term = [ MINUS ] ( call | atomic ) { ( PLUS | MINUS ) ( call | atomic ) }
+// call always takes priority over atomic's IDENTIFIER form when the
+// lookahead is IDENTIFIER: call = IDENTIFIER { atomic } already covers the
+// zero-argument (bare variable) case, so atomic's IDENTIFIER form is never
+// tried separately here.
+ast_node_t* parse_term(parser_t* p)
 {
-    ast_node_t* left = parse_application(p);
+    int negate = (parser_current(p).token == TOKEN_MINUS);
+    token_t neg_tok;
+
+    if (negate)
+        neg_tok = parser_advance(p);
+
+    ast_node_t* left = (parser_current(p).token == TOKEN_IDENTIFIER) ? parse_call(p) : parse_atomic(p);
+
+    if (negate)
+        left = make_node(NODE_NEG, neg_tok, left, NULL);
 
     while (parser_current(p).token == TOKEN_PLUS || parser_current(p).token == TOKEN_MINUS) {
         token_t op = parser_advance(p);
-        ast_node_t* right = parse_application(p);
+        ast_node_t* right = (parser_current(p).token == TOKEN_IDENTIFIER) ? parse_call(p) : parse_atomic(p);
         left = make_node(NODE_BINOP, op, left, right);
     }
 
     return left;
 }
 
-// application → atomic atomic*
-// Parses function/identifier calls with another atomic
-// is LEFT ASSOCIATIVE application
-ast_node_t* parse_application(parser_t* p)
+// call = IDENTIFIER { atomic }
+// A bare identifier (zero trailing atomics) is just a variable reference;
+// one or more trailing atomics form a left-associative application chain.
+ast_node_t* parse_call(parser_t* p)
 {
-    ast_node_t* left = parse_atomic(p);
+    token_t tok = parser_expect(p, TOKEN_IDENTIFIER);
+    ast_node_t* left = make_node(NODE_VAR, tok, NULL, NULL);
 
     while (is_atomic_start(parser_current(p).token)) {
         ast_node_t* arg = parse_atomic(p);
-        left = make_node(NODE_APPLY, left->token, left, arg);
+        left = make_node(NODE_APPLY, tok, left, arg);
     }
 
     return left;
 }
 
-// atomic → INT | STR | LIST | IDENTIFIER | ( expr )
+// atomic = INT | STR | IDENTIFIER | OPENPAREN exprStatement CLOSEPAREN
 // Parses an atomic token
 ast_node_t* parse_atomic(parser_t* p)
 {
@@ -381,17 +432,15 @@ ast_node_t* parse_atomic(parser_t* p)
         case TOKEN_STR:
             parser_advance(p);
             return make_node(NODE_STR, tok, NULL, NULL);
-        case TOKEN_LIST:
-            parser_advance(p);
-            return make_node(NODE_LIST, tok, NULL, NULL);
         case TOKEN_IDENTIFIER:
             parser_advance(p);
             return make_node(NODE_VAR, tok, NULL, NULL);
-        case TOKEN_OPENPAREN:
+        case TOKEN_OPENPAREN: {
             parser_advance(p);
-            ast_node_t* inner = parse_expr(p);
+            ast_node_t* inner = parse_expr_statement(p);
             parser_expect(p, TOKEN_CLOSEPAREN);
-            return inner; 
+            return inner;
+        }
         // TODO: Change to printk/LOGERR for Zephyr
         default:
             fprintf(stderr, "parse error: unexpected token %d\n", tok.token);
