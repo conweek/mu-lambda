@@ -17,7 +17,7 @@ typedef enum node_type_t {
     NODE_RETURN,
     NODE_TAILCALL,
     NODE_BLOCK
-}node_type_t;
+} node_type_t;
 
 typedef struct ASTNode {
     node_type_t type;
@@ -25,18 +25,18 @@ typedef struct ASTNode {
     struct ASTNode* left;
     struct ASTNode* right;
     struct ASTNode* cond;
-}ast_node_t;
+} ast_node_t;
 
 typedef struct Parser {
     token_t* tokens;
     int pos;
-}parser_t;
+} parser_t;
 
 parser_t parser_init(token_t* tokens);
-token_t parser_current(parser_t* p);
-token_t parser_advance(parser_t* p);
-token_t parser_expect(parser_t* p, atomic_token_t type);
-void parser_skip_newlines(parser_t* p);
+// token_t parser_current(parser_t* p);
+// token_t parser_advance(parser_t* p);
+// token_t parser_match(parser_t* p, atomic_token_t type);
+// void parser_skip_newlines(parser_t* p);
 
 ast_node_t* parse_program(parser_t* p);
 ast_node_t* parse_block(parser_t* p);

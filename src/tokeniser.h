@@ -36,13 +36,14 @@ typedef enum atomic_token_t {
     TOKEN_END,
     TOKEN_NEWLINE,
     TOKEN_IDENTIFIER,
-    TOKEN_ENTRYPOINT
+    TOKEN_ENTRYPOINT,
+    TOKEN_UNUSED
 }atomic_token_t;
 
 typedef struct Token {
     atomic_token_t token;
-    char* str;
     int len;
+    char* str;
 }token_t;
 
 token_t tokenise(char** str);
