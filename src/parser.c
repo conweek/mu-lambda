@@ -198,7 +198,7 @@ ast_node_t* parse_statement(parser_t* p) {
         break; // unreachable
     default:
         // TODO: Change to printk/LOGERR for Zephyr
-        fprintf(stderr, "parse error: unexpected token %d, expected a statement\n", tok.token);
+        fprintf(stderr, "parse error: unexpected token %d, expected a statement\n", parser_current(p).token);
         exit(1);
     }
 }

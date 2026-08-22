@@ -8,9 +8,9 @@ static const char* node_type_str(node_type_t type)
     switch (type) {
         case NODE_INT:      return "INT";
         case NODE_STR:      return "STR";
-        case NODE_LIST:     return "LIST";
         case NODE_VAR:      return "VAR";
         case NODE_BINOP:    return "BINOP";
+        case NODE_NEG:      return "NEG";
         case NODE_ASSIGN:   return "ASSIGN";
         case NODE_IF:       return "IF";
         case NODE_FN:       return "FN";
@@ -18,35 +18,101 @@ static const char* node_type_str(node_type_t type)
         case NODE_APPLY:    return "APPLY";
         case NODE_RETURN:   return "RETURN";
         case NODE_TAILCALL: return "TAILCALL";
-        case NODE_DOLLAR:   return "DOLLAR";
         case NODE_BLOCK:    return "BLOCK";
+        case NODE_ENTRY:    return "ENTRY";
         default:            return "???";
     }
+}
+
+static void print_indent(int depth)
+{
+    for (int i = 0; i < depth; i++)
+        printf("  ");
+}
+
+static void print_token(token_t t)
+{
+    if (t.str && t.len > 0)
+        printf(" \"%.*s\"", t.len, t.str);
 }
 
 static void print_ast(ast_node_t* node, int depth)
 {
     if (!node) return;
 
-    for (int i = 0; i < depth; i++)
-        printf("  ");
-
+    print_indent(depth);
     printf("%s", node_type_str(node->type));
 
-    if (node->token.str && node->token.len > 0)
-        printf(" \"%.*s\"", node->token.len, node->token.str);
+    switch (node->type) {
+    case NODE_INT:
+    case NODE_STR:
+        print_token(node->token);
+        printf("\n");
+        break;
 
-    printf("\n");
+    case NODE_VAR:
+        print_token(node->token);
+        printf("\n");
+        print_ast(node->right, depth + 1); // next param in a chain, if any
+        break;
 
-    if (node->cond) {
-        for (int i = 0; i < depth + 1; i++)
-            printf("  ");
+    case NODE_NEG:
+    case NODE_RETURN:
+        print_token(node->token);
+        printf("\n");
+        print_ast(node->left, depth + 1);
+        break;
+
+    case NODE_BINOP:
+    case NODE_APPLY:
+        print_token(node->token);
+        printf("\n");
+        print_ast(node->left, depth + 1);
+        print_ast(node->right, depth + 1);
+        break;
+
+    case NODE_ASSIGN:
+        print_token(node->token);
+        printf("\n");
+        print_ast(node->left, depth + 1);
+        break;
+
+    case NODE_BLOCK:
+        printf("\n");
+        print_ast(node->left, depth + 1);
+        print_ast(node->right, depth);
+        break;
+
+    case NODE_IF:
+        printf("\n");
+        print_indent(depth + 1);
         printf("cond:\n");
         print_ast(node->cond, depth + 2);
-    }
+        print_ast(node->left, depth + 1);
+        print_ast(node->right, depth + 1);
+        break;
 
-    print_ast(node->left, depth + 1);
-    print_ast(node->right, depth + 1);
+    case NODE_FN:
+    case NODE_TAILCALL:
+        print_token(node->token);
+        printf("\n");
+        print_ast(node->left, depth + 1);
+        print_ast(node->right, depth + 1);
+        break;
+
+    case NODE_LAMBDA:
+        print_token(node->token);
+        printf("\n");
+        print_ast(node->left, depth + 1);
+        print_ast(node->right, depth + 1);
+        break;
+
+    case NODE_ENTRY:
+        print_token(node->token);
+        printf("\n");
+        print_ast(node->left, depth + 1);
+        break;
+    }
 }
 
 int main(int argc, char** argv)
