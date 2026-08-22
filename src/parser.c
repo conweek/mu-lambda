@@ -128,11 +128,11 @@ ast_node_t* parse_program(parser_t* p) {
             exit(1);
         }
 
-        ast_node_t* block = make_node(NODE_BLOCK, tok, entry, NULL);
+        ast_node_t* entry_point = make_node(NODE_ENTRY, tok, entry, NULL);
         if (!root) {
-            root = block;
+            root = entry_point;
         } else {
-            tail->right = block;
+            tail->right = entry_point;
         }
 
         parser_skip_newline(p);

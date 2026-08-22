@@ -16,7 +16,8 @@ typedef enum node_type_t {
     NODE_APPLY,
     NODE_RETURN,
     NODE_TAILCALL,
-    NODE_BLOCK
+    NODE_BLOCK,
+    NODE_ENTRY
 } node_type_t;
 
 typedef struct ASTNode {
