@@ -6,8 +6,5 @@ project(mu_lambda C)
 
 target_include_directories(app PRIVATE include)
 
-target_sources(app PRIVATE
-    src/main.c
-    src/read.c
-    src/console.c
-)
+file(GLOB app_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
+target_sources(app PRIVATE ${app_sources})
