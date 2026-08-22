@@ -25,7 +25,7 @@ parser_t parser_init(token_t* tokens) {
 static bool parser_is_match(parser_t* p, atomic_token_t type) {
     token_t tok = parser_current(p);
     if (tok.token != type) {
-        fprintf(stderr, "parse error: expected token %d, got %d\n", type, tok.token);
+
         return false;
     }
 
@@ -38,6 +38,7 @@ static token_t parser_match(parser_t* p, atomic_token_t type) {
         return parser_advance(p);
     }
 
+    fprintf(stderr, "parse error: expected token %d, got %d\n", type, parser_current(p).token);
     exit(1);
 }
 
@@ -110,7 +111,7 @@ ast_node_t* parse_program(parser_t* p) {
     }
 
     if (parser_is_match(p, TOKEN_ENTRYPOINT)) {
-        parser_advance(p); // skip over the Key word EP
+        token_t tok = parser_match(p, TOKEN_ENTRYPOINT); // skip over the Key word EP
         ast_node_t* entry;
         switch (parser_current(p).token) {
         case TOKEN_TAILCALL:
@@ -127,8 +128,13 @@ ast_node_t* parse_program(parser_t* p) {
             exit(1);
         }
 
-        ast_node_t* block = make_node(NODE_BLOCK, parser_current(p), entry, root);
-        root = block;
+        ast_node_t* block = make_node(NODE_BLOCK, tok, entry, NULL);
+        if (!root) {
+            root = block;
+        } else {
+            tail->right = block;
+        }
+
         parser_skip_newline(p);
     }
 
@@ -146,6 +152,7 @@ ast_node_t* parse_block(parser_t* p) {
         switch (parser_current(p).token) {
         case TOKEN_COMMENT:
             parser_match(p, TOKEN_COMMENT);
+            break;
         default:
             block = make_node(NODE_BLOCK, parser_current(p), parse_statement(p), NULL);
             if (!root) {
