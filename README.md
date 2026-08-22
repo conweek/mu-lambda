@@ -7,4 +7,9 @@ A micro functional language written on top of Zephyr RTOS for portability.
 Read the included Makefile and determine which targets you would like to make, then just run it :)
 
 ## AI Usage
-AI (Claude Opus 4.6) was utilised in creating the Makefile as well as adding error checking for the tokeniser and memory arena (We were lazy).
+AI (Claude Opus 4.6) was utilised in the following ways:
+
+1. To create and maintain the Makefile and its rules
+2. To add error checking and check over the tokeniser
+3. To add byte alignment and check over the memory arena
+4. To aid in development of the parser

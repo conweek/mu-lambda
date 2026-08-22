@@ -37,9 +37,15 @@ test-arena: $(BUILDDIR)/test_arena
 $(BUILDDIR)/test_arena: $(TESTDIR)/test_arena.c $(LIB_OBJS) | $(BUILDDIR)
 	$(CC) $(CFLAGS) $(DEFINES) -o $@ $< $(LIB_OBJS)
 
-test: test-tokeniser test-arena
+test-parser: $(BUILDDIR)/parser-test
+	./$(BUILDDIR)/parser-test
+
+$(BUILDDIR)/parser-test: $(TESTDIR)/parser-test.c $(LIB_OBJS) | $(BUILDDIR)
+	$(CC) $(CFLAGS) $(DEFINES) -o $@ $< $(LIB_OBJS)
+
+test: test-tokeniser test-arena test-parser
 
 clean:
 	rm -rf $(BUILDDIR)
 
-.PHONY: all clean test test-tokeniser test-arena
+.PHONY: all clean test test-tokeniser test-arena test-parser

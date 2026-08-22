@@ -7,7 +7,7 @@
 token_t tokenise(char** str)
 {
 
-    while (isspace(**str))
+    while (**str == ' ' || **str == '\t')
         (*str)++;
 
     token_t token = {
@@ -22,7 +22,8 @@ token_t tokenise(char** str)
             UPDATE_TOKEN(TOKEN_EOF, *str, 0);
             return token;
         case '\n':
-            UPDATE_TOKEN(TOKEN_EOF, *str, 0);
+            UPDATE_TOKEN(TOKEN_NEWLINE, *str, 1);
+            (*str)++;
             return token;
         case '+':
             UPDATE_TOKEN(TOKEN_PLUS, *str, 1);
@@ -143,6 +144,10 @@ token_t tokenise(char** str)
             token.token = TOKEN_FUNCTION;
         else if (token.len == 2 && strncmp(token.str, "ts", 2) == 0)
             token.token = TOKEN_TAILCALL;
+        else if (token.len == 6 && strncmp(token.str, "return", 6) == 0)
+            token.token = TOKEN_RETURN;
+        else if (token.len == 3 && strncmp(token.str, "end", 3) == 0)
+            token.token = TOKEN_END;
         return token;
     }
 
