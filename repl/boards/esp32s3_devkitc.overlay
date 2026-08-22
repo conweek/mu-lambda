@@ -1,0 +1,7 @@
+&gpio0 {
+	label = "gpio0";
+};
+
+&gpio1 {
+	label = "gpio1";
+};

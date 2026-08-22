@@ -16,12 +16,15 @@ typedef enum value_type {
     VAR_NORESULT,
     VAR_CLOSURE,
     VAR_BUILTIN,
-    VAR_THUNK
+    VAR_NATIVE_CLOSURE,
+    VAR_THUNK,
+    VAR_ERROR
 }value_type_t;
 
 typedef struct value value_t;
 typedef struct binding binding_t;
 typedef value_t* (*builtin_fn)(value_t* arg);
+typedef value_t* (*native_closure_fn)(void* ctx, value_t* arg);
 
 struct binding {
     char* name;
@@ -48,6 +51,11 @@ typedef struct thunk {
     value_t* arg;
 }thunk_t;
 
+typedef struct native_closure {
+    native_closure_fn fn;
+    void* ctx;
+}native_closure_t;
+
 struct value {
     value_type_t valueType;
     int is_return;
@@ -58,6 +66,7 @@ struct value {
         closure_t closure;
         thunk_t thunk;
         builtin_fn builtin;
+        native_closure_t native;
     }value;
 };
 
@@ -72,5 +81,8 @@ value_t* evaluate(ast_node_t* node, env_t* env);
 value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall);
 void register_builtin(env_t* env, const char* name, builtin_fn fn);
 value_t* run_interpreter(char* source);
+value_t* make_no_result();
+value_t* make_error();
+value_t* make_int(int val);
 
 #endif
