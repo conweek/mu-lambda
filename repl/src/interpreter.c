@@ -252,17 +252,6 @@ static value_t* make_thunk(value_t* fn, value_t* arg) {
     return thunk;
 }
 
-void register_builtin(env_t* env, const char* name, builtin_fn fn) {
-    value_t* val = (value_t*)k_malloc(sizeof(value_t));
-    val->valueType = VAR_BUILTIN;
-    val->is_return = 0;
-    val->refcount = 1;
-    val->value.builtin = fn;
-
-    create_binding(env, (char*)name, strlen(name), val);
-    value_release(val);
-}
-
 value_t* run_interpreter(char* source) {
     char* ptr = source;
     token_t* tokens = get_token_list(&ptr);
