@@ -9,21 +9,37 @@
     } while (0)
 
 typedef enum atomic_token_t {
+    // File stuff
     TOKEN_ERR,
     TOKEN_EOF,
+    TOKEN_NEWLINE,
+    TOKEN_UNUSED,
+    // Types
     TOKEN_INT,
     TOKEN_STR,
-    TOKEN_LIST,
-    TOKEN_IF,
-    TOKEN_ELSE,
+    TOKEN_IDENTIFIER,
+    // BitWise 
+    TOKEN_COMPLIMENT,
+    TOKEN_OR,
+    TOKEN_AND,
+    TOKEN_XOR,
+    TOKEN_LSHIFT,
+    TOKEN_RSHIFT,
+    // Arithmitic
     TOKEN_PLUS,
     TOKEN_MINUS,
     TOKEN_TIMES,
     TOKEN_DIVIDE,
+    // Comparision
     TOKEN_GREATERTHAN,
+    TOKEN_GREATERTHANEQUAL,
     TOKEN_LESSTHAN,
+    TOKEN_LESSTHANEQUAL,
     TOKEN_EQUALTO,
     TOKEN_NOTEQUALTO,
+    // Keywords
+    TOKEN_IF,
+    TOKEN_ELSE,
     TOKEN_ASSIGNMENT,
     TOKEN_LAMBDA,
     TOKEN_FUNCTION,
@@ -34,12 +50,8 @@ typedef enum atomic_token_t {
     TOKEN_COMMENT,
     TOKEN_OPENPAREN,
     TOKEN_CLOSEPAREN,
-    TOKEN_DOLLARSIGN,
     TOKEN_END,
-    TOKEN_NEWLINE,
-    TOKEN_IDENTIFIER,
-    TOKEN_ENTRYPOINT,
-    TOKEN_UNUSED
+    TOKEN_ENTRYPOINT
 } atomic_token_t;
 
 typedef struct Token {

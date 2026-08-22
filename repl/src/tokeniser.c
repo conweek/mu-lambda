@@ -28,6 +28,18 @@ token_t tokenise(char** str) {
         UPDATE_TOKEN(TOKEN_TIMES, *str, 1);
         (*str)++;
         return token;
+    case '^':
+        UPDATE_TOKEN(TOKEN_XOR, *str, 1);
+        (*str)++;
+        return token;
+    case '&':
+        UPDATE_TOKEN(TOKEN_AND, *str, 1);
+        (*str)++;
+        return token;
+    case '|':
+        UPDATE_TOKEN(TOKEN_OR, *str, 1);
+        (*str)++;
+        return token;
     case '-':
         if (*(*str + 1) == '>') {
             UPDATE_TOKEN(TOKEN_ARROW, *str, 2);
@@ -36,14 +48,33 @@ token_t tokenise(char** str) {
             UPDATE_TOKEN(TOKEN_MINUS, *str, 1);
             (*str)++;
         }
+
         return token;
     case '>':
-        UPDATE_TOKEN(TOKEN_GREATERTHAN, *str, 1);
-        (*str)++;
+        if (*(*str + 1) == '>') {
+            UPDATE_TOKEN(TOKEN_RSHIFT, *str, 2);
+            (*str) += 2;
+        } else if (*(*str + 1) == '=') {
+            UPDATE_TOKEN(TOKEN_GREATERTHANEQUAL, *str, 2);
+            (*str) += 2;
+        } else {
+            UPDATE_TOKEN(TOKEN_GREATERTHAN, *str, 1);
+            (*str)++;
+        }
+
         return token;
     case '<':
-        UPDATE_TOKEN(TOKEN_LESSTHAN, *str, 1);
-        (*str)++;
+        if (*(*str + 1) == '<') {
+            UPDATE_TOKEN(TOKEN_LSHIFT, *str, 2);
+            (*str) += 2;
+        } else if (*(*str + 1) == '=') {
+            UPDATE_TOKEN(TOKEN_LESSTHANEQUAL, *str, 2);
+            (*str) += 2;
+        } else {
+            UPDATE_TOKEN(TOKEN_LESSTHAN, *str, 1);
+            (*str)++;
+        }
+
         return token;
     case '(':
         UPDATE_TOKEN(TOKEN_OPENPAREN, *str, 1);
@@ -53,10 +84,6 @@ token_t tokenise(char** str) {
         UPDATE_TOKEN(TOKEN_CLOSEPAREN, *str, 1);
         (*str)++;
         return token;
-    case '$':
-        UPDATE_TOKEN(TOKEN_DOLLARSIGN, *str, 1);
-        (*str)++;
-        return token;
     case '\\':
         UPDATE_TOKEN(TOKEN_LAMBDA, *str, 1);
         (*str)++;
@@ -64,6 +91,25 @@ token_t tokenise(char** str) {
     case ':':
         UPDATE_TOKEN(TOKEN_COLON, *str, 1);
         (*str)++;
+        return token;
+    case '!':
+        if (*(*str + 1) == '=') {
+            UPDATE_TOKEN(TOKEN_NOTEQUALTO, *str, 2);
+            (*str) += 2;
+        } else {
+            UPDATE_TOKEN(TOKEN_ERR, NULL, 0);
+        }
+
+        return token;
+    case '=':
+        if (*(*str + 1) == '=') {
+            UPDATE_TOKEN(TOKEN_EQUALTO, *str, 2);
+            (*str) += 2;
+        } else {
+            UPDATE_TOKEN(TOKEN_ASSIGNMENT, *str, 1);
+            (*str)++;
+        }
+
         return token;
     default:
         break;
@@ -116,23 +162,6 @@ token_t tokenise(char** str) {
         return token;
     }
 
-    // Handle lists
-    if (**str == '[') {
-        (*str)++;
-        token.token = TOKEN_LIST;
-        token.str = *str;
-        while (**str != '\0' && **str != ']') {
-            token.len++;
-            (*str)++;
-        }
-        if (**str == '\0') {
-            UPDATE_TOKEN(TOKEN_ERR, NULL, 0);
-            return token;
-        }
-        (*str)++;
-        return token;
-    }
-
     // Handle identifiers and keywords
     if (isalpha(**str) || **str == '_') {
         token.token = TOKEN_IDENTIFIER;
@@ -155,30 +184,6 @@ token_t tokenise(char** str) {
             token.token = TOKEN_END;
         } else if (token.len == 2 && strncmp(token.str, "ep", 2) == 0) {
             token.token = TOKEN_ENTRYPOINT;
-        }
-        return token;
-    }
-
-    // Handle not equals operator
-    if (**str == '!') {
-        (*str)++;
-        if (**str == '=') {
-            UPDATE_TOKEN(TOKEN_NOTEQUALTO, *str - 1, 2);
-            (*str)++;
-        } else {
-            UPDATE_TOKEN(TOKEN_ERR, NULL, 0);
-        }
-        return token;
-    }
-
-    // Handle assignment and equals operators
-    if (**str == '=') {
-        (*str)++;
-        if (**str == '=') {
-            UPDATE_TOKEN(TOKEN_EQUALTO, *str - 1, 2);
-            (*str)++;
-        } else {
-            UPDATE_TOKEN(TOKEN_ASSIGNMENT, *str - 1, 1);
         }
         return token;
     }
