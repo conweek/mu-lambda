@@ -41,6 +41,10 @@ token_t tokenise(char** str) {
         UPDATE_TOKEN(TOKEN_OR, *str, 1);
         (*str)++;
         return token;
+    case '~':
+        UPDATE_TOKEN(TOKEN_COMPLIMENT, *str, 1);
+        (*str)++;
+        return token;
     case '-':
         if (*(*str + 1) == '>') {
             UPDATE_TOKEN(TOKEN_ARROW, *str, 2);
