@@ -35,7 +35,8 @@ typedef enum atomic_token_t {
     TOKEN_DOLLARSIGN,
     TOKEN_END,
     TOKEN_NEWLINE,
-    TOKEN_IDENTIFIER
+    TOKEN_IDENTIFIER,
+    TOKEN_ENTRYPOINT
 }atomic_token_t;
 
 typedef struct Token {

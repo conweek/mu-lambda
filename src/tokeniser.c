@@ -148,6 +148,8 @@ token_t tokenise(char** str)
             token.token = TOKEN_RETURN;
         else if (token.len == 3 && strncmp(token.str, "end", 3) == 0)
             token.token = TOKEN_END;
+        else if (token.len == 2 && strncmp(token.str, "ep", 2) == 0)
+            token.token = TOKEN_ENTRYPOINT;
         return token;
     }
 
