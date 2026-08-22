@@ -56,6 +56,7 @@ int main(void) {
         return -1;
     }
     register_builtin(env, "print", builtin_print);
+    register_builtin(env, "write", builtin_write);
     register_builtin(env, "sleep", builtin_sleep);
     register_builtin(env, "gpioSet", builtin_gpio_set);
     register_builtin(env, "gpioRead", builtin_gpio_read);

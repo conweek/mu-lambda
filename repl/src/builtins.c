@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/i2c.h>
@@ -5,6 +7,7 @@
 #include "zephyr/dt-bindings/gpio/gpio.h"
 #include "builtins.h"
 #include "mu_arena.h"
+#include "mu_console.h"
 
 #define BUILTIN_ERR(name)                                                                          \
     do {                                                                                           \
@@ -12,17 +15,64 @@
         return make_error();                                                                       \
     } while (0)
 
-value_t* builtin_print(value_t* arg) {
+/* printk opens every call with its own colour escape, which would wipe out any
+ * colour a program sets, so program output goes straight to the console. The
+ * buffer uses \n between lines and the terminal needs \r\n. */
+static void console_str(const char* s) {
+    size_t start = 0;
+    size_t i = 0;
+
+    for (; s[i] != '\0'; i++) {
+        if (s[i] == '\n') {
+            mu_write(s + start, i - start);
+            mu_write("\r\n", 2);
+            start = i + 1;
+        }
+    }
+
+    mu_write(s + start, i - start);
+}
+
+static int console_value(value_t* arg) {
     if (!arg) {
-        BUILTIN_ERR("print");
+        return 0;
     }
+
     if (arg->valueType == VAR_INT) {
-        printk("%d\n", arg->value.integer);
-    } else if (arg->valueType == VAR_STRING) {
-        printk("%s\n", arg->value.string);
-    } else {
+        char buf[16];
+        int n = snprintf(buf, sizeof(buf), "%d", arg->value.integer);
+
+        if (n > 0) {
+            mu_write(buf, (size_t)n);
+        }
+
+        return 1;
+    }
+
+    if (arg->valueType == VAR_STRING) {
+        console_str(arg->value.string);
+        return 1;
+    }
+
+    return 0;
+}
+
+value_t* builtin_print(value_t* arg) {
+    if (!console_value(arg)) {
         BUILTIN_ERR("print");
     }
+
+    mu_write("\r\n", 2);
+
+    return make_no_result();
+}
+
+// Same as print but leaves the cursor where it is, for escapes and partial lines
+value_t* builtin_write(value_t* arg) {
+    if (!console_value(arg)) {
+        BUILTIN_ERR("write");
+    }
+
     return make_no_result();
 }
 
