@@ -2,9 +2,11 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "mu_arena.h"
 #include "mu_console.h"
 #include "mu_read.h"
 #include "interpreter.h"
+#include "builtins.h"
 
 #define LINE_MAX  128
 #define STMT_MAX  4096
@@ -46,6 +48,17 @@ int main(void) {
     if (mu_console_init() < 0) {
         return -1;
     }
+
+    mu_arena_init();
+
+    env_t* env = create_env(NULL);
+    if (!env) {
+        return -1;
+    }
+    register_builtin(env, "print", builtin_print);
+    register_builtin(env, "sleep", builtin_sleep);
+    register_builtin(env, "gpioSet", builtin_gpio_set);
+    register_builtin(env, "gpioRead", builtin_gpio_read);
 
     mu_write(BANNER, sizeof(BANNER) - 1);
 
@@ -123,7 +136,21 @@ int main(void) {
             mu_write(SEP_OUT, sizeof(SEP_OUT) - 1);
         }
 
-        value_t* result = run_interpreter(stmt);
+        // Scratch only holds the token list, it never outlives a submission
+        memrina_clear(mu_scratch);
+
+        // Rewind point for a submission that turns out to define nothing
+        Memrina_Checkpoint cp = memrina_set_check(mu_session);
+        int bindings_before = env->count;
+
+        // Source has to outlive the call, tokens point into it
+        char* src = memrina_strndup(mu_session, stmt, len);
+        if (!src) {
+            mu_write("out of memory\r\n", 16);
+            continue;
+        }
+
+        value_t* result = run_interpreter(src, env);
         if (result) {
             if (result->valueType == VAR_INT) {
                 char buf[16];
@@ -135,6 +162,11 @@ int main(void) {
                 mu_write("\r\n", 2);
             }
             value_release(result);
+        }
+
+        // Nothing was defined, so none of this needs to survive
+        if (env->count == bindings_before) {
+            memrina_restore_check(mu_session, cp);
         }
 
         if (batch) {

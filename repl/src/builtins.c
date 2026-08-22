@@ -1,9 +1,9 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
-#include "zephyr/dt-bindings/gpio/gpio.h"
-
 #include "interpreter.h"
+#include "zephyr/dt-bindings/gpio/gpio.h"
 #include "builtins.h"
+#include "mu_arena.h"
 
 #define BUILTIN_ERR(name)                                                                          \
     do {                                                                                           \
@@ -60,7 +60,7 @@ static value_t* gpio_set_pin(void* ctx, value_t* arg) {
 
     gpio_ctx_t* g = (gpio_ctx_t*)ctx;
 
-    gpio_ctx_t* next = (gpio_ctx_t*)k_malloc(sizeof(gpio_ctx_t));
+    gpio_ctx_t* next = (gpio_ctx_t*)memrina_alloc(mu_session, sizeof(gpio_ctx_t));
     if (!next) {
         return NULL;
     }
@@ -68,9 +68,8 @@ static value_t* gpio_set_pin(void* ctx, value_t* arg) {
     next->gpio = g->gpio;
     next->pin = arg->value.integer;
 
-    value_t* val = (value_t*)k_malloc(sizeof(value_t));
+    value_t* val = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
     if (!val) {
-        k_free(next);
         return NULL;
     }
 
@@ -94,7 +93,7 @@ value_t* builtin_gpio_set(value_t* arg) {
         return make_error();
     }
 
-    gpio_ctx_t* ctx = (gpio_ctx_t*)k_malloc(sizeof(gpio_ctx_t));
+    gpio_ctx_t* ctx = (gpio_ctx_t*)memrina_alloc(mu_session, sizeof(gpio_ctx_t));
     if (!ctx) {
         return NULL;
     }
@@ -102,9 +101,8 @@ value_t* builtin_gpio_set(value_t* arg) {
     ctx->gpio = gpio;
     ctx->pin = -1;
 
-    value_t* val = (value_t*)k_malloc(sizeof(value_t));
+    value_t* val = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
     if (!val) {
-        k_free(ctx);
         return NULL;
     }
 
@@ -140,7 +138,7 @@ value_t* builtin_gpio_read(value_t* arg) {
         return make_error();
     }
 
-    gpio_ctx_t* ctx = (gpio_ctx_t*)k_malloc(sizeof(gpio_ctx_t));
+    gpio_ctx_t* ctx = (gpio_ctx_t*)memrina_alloc(mu_session, sizeof(gpio_ctx_t));
     if (!ctx) {
         return NULL;
     }
@@ -148,9 +146,8 @@ value_t* builtin_gpio_read(value_t* arg) {
     ctx->gpio = gpio;
     ctx->pin = -1;
 
-    value_t* val = (value_t*)k_malloc(sizeof(value_t));
+    value_t* val = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
     if (!val) {
-        k_free(ctx);
         return NULL;
     }
 
@@ -164,7 +161,11 @@ value_t* builtin_gpio_read(value_t* arg) {
 }
 
 void register_builtin(env_t* env, const char* name, builtin_fn fn) {
-    value_t* val = (value_t*)k_malloc(sizeof(value_t));
+    value_t* val = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    if (!val) {
+        return;
+    }
+
     val->valueType = VAR_BUILTIN;
     val->is_return = 0;
     val->refcount = 1;

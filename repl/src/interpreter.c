@@ -1,14 +1,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <zephyr/kernel.h>
-
 #include "tokeniser.h"
 #include "parser.h"
 #include "interpreter.h"
 #include "builtins.h"
+#include "mu_arena.h"
 
 value_t* make_int(int val) {
-    value_t* value = (value_t*)k_malloc(sizeof(value_t));
+    value_t* value = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
 
     if (!value) {
         return NULL;
@@ -23,7 +23,7 @@ value_t* make_int(int val) {
 }
 
 value_t* make_no_result() {
-    value_t* value = (value_t*)k_malloc(sizeof(value_t));
+    value_t* value = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
 
     if (!value) {
         return NULL;
@@ -37,7 +37,7 @@ value_t* make_no_result() {
 }
 
 value_t* make_error() {
-    value_t* value = (value_t*)k_malloc(sizeof(value_t));
+    value_t* value = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
 
     if (!value) {
         return NULL;
@@ -59,7 +59,7 @@ static inline int is_str(value_t* node) {
 }
 
 value_t* convert_value(node_type_t type, char* val, int len) {
-    value_t* value = (value_t*)k_malloc(sizeof(value_t));
+    value_t* value = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
 
     if (!value) {
         return NULL;
@@ -80,7 +80,7 @@ value_t* convert_value(node_type_t type, char* val, int len) {
         break;
     }
     case NODE_STR: {
-        char* s = k_malloc(len + 1);
+        char* s = memrina_alloc(mu_session, len + 1);
         memcpy(s, val, len);
         s[len] = '\0';
         value->valueType = VAR_STRING;
@@ -88,7 +88,6 @@ value_t* convert_value(node_type_t type, char* val, int len) {
         break;
     }
     default:
-        k_free(value);
         return NULL;
     }
 
@@ -96,7 +95,7 @@ value_t* convert_value(node_type_t type, char* val, int len) {
 }
 
 env_t* create_env(env_t* parent) {
-    env_t* env = (env_t*)k_malloc(sizeof(env_t));
+    env_t* env = (env_t*)memrina_alloc(mu_session, sizeof(env_t));
 
     if (!env) {
         return NULL;
@@ -115,74 +114,30 @@ env_t* create_env(env_t* parent) {
 }
 
 void env_retain(env_t* env) {
-    if (env) {
-        env->refcount++;
-    }
+    (void)env;
 }
 
 void env_release(env_t* env) {
-    if (!env) {
-        return;
-    }
-
-    env->refcount--;
-    if (env->refcount > 0) {
-        return;
-    }
-
-    binding_t* b = env->bindings;
-    while (b) {
-        binding_t* next = b->next;
-        value_release(b->value);
-        k_free(b->name);
-        k_free(b);
-        b = next;
-    }
-
-    env_release(env->parent);
-    k_free(env);
+    (void)env;
 }
 
 void value_retain(value_t* val) {
-    if (val) {
-        val->refcount++;
-    }
+    (void)val;
 }
 
 void value_release(value_t* val) {
-    if (!val) {
-        return;
-    }
-
-    val->refcount--;
-    if (val->refcount > 0) {
-        return;
-    }
-
-    if (val->valueType == VAR_STRING) {
-        k_free(val->value.string);
-    } else if (val->valueType == VAR_CLOSURE) {
-        env_release(val->value.closure.env);
-    } else if (val->valueType == VAR_NATIVE_CLOSURE) {
-        k_free(val->value.native.ctx);
-    } else if (val->valueType == VAR_THUNK) {
-        value_release(val->value.thunk.fn);
-        value_release(val->value.thunk.arg);
-    }
-
-    k_free(val);
+    (void)val;
 }
 
 int create_binding(env_t* env, char* name, int nameLen, value_t* value) {
-    binding_t* binding = k_malloc(sizeof(binding_t));
+    binding_t* binding = memrina_alloc(mu_session, sizeof(binding_t));
 
     if (!binding) {
         return MU_BINDING_ERR;
     }
 
-    binding->name = k_malloc(nameLen + 1);
+    binding->name = memrina_alloc(mu_session, nameLen + 1);
     if (!binding->name) {
-        k_free(binding);
         return MU_BINDING_ERR;
     }
     memcpy(binding->name, name, nameLen);
@@ -235,7 +190,7 @@ value_t* env_lookup(env_t* env, char* name, int nameLen) {
 }
 
 static value_t* make_thunk(value_t* fn, value_t* arg) {
-    value_t* thunk = (value_t*)k_malloc(sizeof(value_t));
+    value_t* thunk = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
 
     if (!thunk) {
         return NULL;
@@ -252,7 +207,7 @@ static value_t* make_thunk(value_t* fn, value_t* arg) {
     return thunk;
 }
 
-value_t* run_interpreter(char* source) {
+value_t* run_interpreter(char* source, env_t* env) {
     char* ptr = source;
     token_t* tokens = get_token_list(&ptr);
     if (!tokens) {
@@ -265,28 +220,12 @@ value_t* run_interpreter(char* source) {
 
     if (p.error) {
         ast_free(ast);
-        k_free(tokens);
         return NULL;
     }
-
-    env_t* env = create_env(NULL);
-    if (!env) {
-        printk("[!] Error: failed to create environment\n");
-        ast_free(ast);
-        k_free(tokens);
-        return NULL;
-    }
-
-    register_builtin(env, "print", builtin_print);
-    register_builtin(env, "sleep", builtin_sleep);
-    register_builtin(env, "gpioSet", builtin_gpio_set);
-    register_builtin(env, "gpioRead", builtin_gpio_read);
 
     value_t* result = evaluate(ast, env);
 
-    env_release(env);
     ast_free(ast);
-    k_free(tokens);
 
     if (!result) {
         printk("[!] Error: evaluation failed\n");
@@ -301,6 +240,10 @@ value_t* evaluate(ast_node_t* node, env_t* env) {
 }
 
 value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
+    if (!node) {
+        return NULL;
+    }
+
     switch (node->type) {
     case NODE_ERROR:
         return NULL;
@@ -430,7 +373,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         END_SCOPE
 
         SCOPED_CASE(NODE_FN)
-        value_t* func = (value_t*)k_malloc(sizeof(value_t));
+        value_t* func = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
         func->valueType = VAR_CLOSURE;
         func->is_return = 0;
         func->refcount = 1;
@@ -445,7 +388,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         END_SCOPE
 
         SCOPED_CASE(NODE_LAMBDA)
-        value_t* fn = k_malloc(sizeof(value_t));
+        value_t* fn = memrina_alloc(mu_session, sizeof(value_t));
         fn->valueType = VAR_CLOSURE;
         fn->is_return = 0;
         fn->refcount = 1;
@@ -512,7 +455,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
             value_release(arg);
 
             if (param->right != NULL) {
-                value_t* partial = k_malloc(sizeof(value_t));
+                value_t* partial = memrina_alloc(mu_session, sizeof(value_t));
                 partial->valueType = VAR_CLOSURE;
                 partial->is_return = 0;
                 partial->refcount = 1;
@@ -560,7 +503,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         END_SCOPE
 
         SCOPED_CASE(NODE_TAILCALL)
-        value_t* func = (value_t*)k_malloc(sizeof(value_t));
+        value_t* func = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
         func->valueType = VAR_CLOSURE;
         func->is_return = 0;
         func->refcount = 1;

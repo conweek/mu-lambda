@@ -1,17 +1,15 @@
 #include <stdbool.h>
+#include <stdlib.h>
 #include <zephyr/kernel.h>
+
+#include "mu_arena.h"
 
 #include "parser.h"
 #include "tokeniser.h"
 
+// Nodes live in the session arena and are reclaimed with it, nothing to free
 void ast_free(ast_node_t* node) {
-    if (!node) {
-        return;
-    }
-    ast_free(node->left);
-    ast_free(node->right);
-    ast_free(node->cond);
-    k_free(node);
+    (void)node;
 }
 
 // Retrieves current token
@@ -63,11 +61,17 @@ void parser_skip_newline(parser_t* p) {
 }
 
 // Creates a new node
-static ast_node_t* make_node(node_type_t type, token_t token, ast_node_t* left, ast_node_t* right) {
-    // k_malloc to be replaced with memory arena
-    ast_node_t* node = (ast_node_t*)k_malloc(sizeof(ast_node_t));
+static ast_node_t* make_node(parser_t* p, node_type_t type, token_t token, ast_node_t* left,
+                             ast_node_t* right) {
+    ast_node_t* node = (ast_node_t*)memrina_alloc(mu_session, sizeof(ast_node_t));
 
+    // Out of arena, flag it so the caller never runs this tree.
+    // Only the first failure reports, the rest unwind quietly
     if (!node) {
+        if (!p->error) {
+            printk("[!] Error: out of memory\n");
+        }
+        p->error = true;
         return NULL;
     }
 
@@ -111,7 +115,7 @@ ast_node_t* parse_program(parser_t* p) {
             break;
         default:
             tok = parser_current(p);
-            block = make_node(NODE_BLOCK, tok, parse_statement(p), NULL);
+            block = make_node(p, NODE_BLOCK, tok, parse_statement(p), NULL);
             if (!root) {
                 root = block;
                 tail = block;
@@ -138,10 +142,10 @@ ast_node_t* parse_program(parser_t* p) {
             printk("[!] Error: EP must be followed by a function definition, got token %d\n",
                    parser_current(p).token);
             p->error = true;
-            entry = make_node(NODE_ERROR, parser_advance(p), NULL, NULL);
+            entry = make_node(p, NODE_ERROR, parser_advance(p), NULL, NULL);
         }
 
-        ast_node_t* entry_point = make_node(NODE_ENTRY, tok, entry, NULL);
+        ast_node_t* entry_point = make_node(p, NODE_ENTRY, tok, entry, NULL);
         if (!root) {
             root = entry_point;
         } else {
@@ -169,7 +173,7 @@ ast_node_t* parse_block(parser_t* p) {
             break;
         default:
             tok = parser_current(p);
-            block = make_node(NODE_BLOCK, tok, parse_statement(p), NULL);
+            block = make_node(p, NODE_BLOCK, tok, parse_statement(p), NULL);
             if (!root) {
                 root = block;
                 tail = block;
@@ -198,24 +202,24 @@ ast_node_t* parse_statement(parser_t* p) {
         return parse_fn(p, 1);
     case TOKEN_RETURN:
         tok = parser_match(p, TOKEN_RETURN);
-        return make_node(NODE_RETURN, tok, parse_expr_statement(p), NULL);
+        return make_node(p, NODE_RETURN, tok, parse_expr_statement(p), NULL);
     case TOKEN_IDENTIFIER:
         tok = parser_match(p, TOKEN_IDENTIFIER); // grab the left hand side
         if (parser_is_match(p, TOKEN_ASSIGNMENT)) {
             parser_match(p, TOKEN_ASSIGNMENT); // skip over the '='
-            return make_node(NODE_ASSIGN, tok, parse_expr_statement(p), NULL);
+            return make_node(p, NODE_ASSIGN, tok, parse_expr_statement(p), NULL);
         } else {
-            ast_node_t* left = make_node(NODE_VAR, tok, NULL, NULL);
+            ast_node_t* left = make_node(p, NODE_VAR, tok, NULL, NULL);
             while (is_atomic_start(parser_current(p).token)) {
                 ast_node_t* arg = is_lambda_start(p) ? parse_lambda(p) : parse_atomic(p);
-                left = make_node(NODE_APPLY, tok, left, arg);
+                left = make_node(p, NODE_APPLY, tok, left, arg);
             }
             return left;
         }
     default:
         printk("[!] Error: unexpected token %d, expected a statement\n", parser_current(p).token);
         p->error = true;
-        return make_node(NODE_ERROR, parser_advance(p), NULL, NULL);
+        return make_node(p, NODE_ERROR, parser_advance(p), NULL, NULL);
     }
 }
 
@@ -233,7 +237,7 @@ ast_node_t* parse_if(parser_t* p) {
     while (!(parser_is_match(p, TOKEN_ELSE) || parser_is_match(p, TOKEN_END))) {
         // The true block
         tok = parser_current(p);
-        ast_node_t* blk = make_node(NODE_BLOCK, tok, parse_statement(p), NULL);
+        ast_node_t* blk = make_node(p, NODE_BLOCK, tok, parse_statement(p), NULL);
 
         if (!then_root) {
             then_root = blk;
@@ -259,7 +263,7 @@ ast_node_t* parse_if(parser_t* p) {
 
         while (!parser_is_match(p, TOKEN_END)) {
             tok = parser_current(p);
-            ast_node_t* blk = make_node(NODE_BLOCK, tok, parse_statement(p), NULL);
+            ast_node_t* blk = make_node(p, NODE_BLOCK, tok, parse_statement(p), NULL);
             if (!else_root) {
                 else_root = blk;
                 else_tail = blk;
@@ -276,7 +280,7 @@ ast_node_t* parse_if(parser_t* p) {
 
     parser_match(p, TOKEN_END);
 
-    ast_node_t* node = make_node(NODE_IF, tok, then_root, else_branch);
+    ast_node_t* node = make_node(p, NODE_IF, tok, then_root, else_branch);
     node->cond = cond;
     return node;
 }
@@ -297,7 +301,7 @@ ast_node_t* parse_fn(parser_t* p, int tailcall) {
     ast_node_t* ptail = NULL;
 
     while (parser_is_match(p, TOKEN_IDENTIFIER)) {
-        ast_node_t* pnode = make_node(NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
+        ast_node_t* pnode = make_node(p, NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
         if (!params) {
             params = pnode;
             ptail = pnode;
@@ -309,7 +313,8 @@ ast_node_t* parse_fn(parser_t* p, int tailcall) {
 
     parser_match(p, TOKEN_COLON);
     parser_skip_newline(p);
-    ast_node_t* node = make_node(tailcall ? NODE_TAILCALL : NODE_FN, name, params, parse_block(p));
+    ast_node_t* node =
+        make_node(p, tailcall ? NODE_TAILCALL : NODE_FN, name, params, parse_block(p));
     return node;
 }
 
@@ -318,11 +323,11 @@ ast_node_t* parse_fn(parser_t* p, int tailcall) {
 ast_node_t* parse_lambda(parser_t* p) {
     parser_match(p, TOKEN_OPENPAREN);
     token_t tok = parser_match(p, TOKEN_LAMBDA);
-    ast_node_t* params = make_node(NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
+    ast_node_t* params = make_node(p, NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
     ast_node_t* ptail = params;
 
     while (parser_is_match(p, TOKEN_IDENTIFIER)) {
-        ast_node_t* pnode = make_node(NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
+        ast_node_t* pnode = make_node(p, NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
         ptail->right = pnode;
         ptail = pnode;
     }
@@ -331,7 +336,7 @@ ast_node_t* parse_lambda(parser_t* p) {
     ast_node_t* body = parse_expr_statement(p);
     parser_match(p, TOKEN_CLOSEPAREN);
 
-    ast_node_t* node = make_node(NODE_LAMBDA, tok, params, body);
+    ast_node_t* node = make_node(p, NODE_LAMBDA, tok, params, body);
     return node;
 }
 
@@ -347,7 +352,7 @@ ast_node_t* parse_comparison(parser_t* p) {
         left = parse_lambda(p);
         while (is_atomic_start(parser_current(p).token)) {
             ast_node_t* arg = is_lambda_start(p) ? parse_lambda(p) : parse_atomic(p);
-            left = make_node(NODE_APPLY, left->token, left, arg);
+            left = make_node(p, NODE_APPLY, left->token, left, arg);
         }
     } else {
         left = parse_term(p);
@@ -358,7 +363,7 @@ ast_node_t* parse_comparison(parser_t* p) {
     if (is_op(tok.token)) {
         parser_advance(p);
         ast_node_t* right = is_lambda_start(p) ? parse_lambda(p) : parse_term(p);
-        left = make_node(NODE_BINOP, tok, left, right);
+        left = make_node(p, NODE_BINOP, tok, left, right);
     }
 
     return left;
@@ -376,12 +381,12 @@ ast_node_t* parse_term(parser_t* p) {
     ast_node_t* left = parse_factor(p);
 
     if (neg) {
-        left = make_node(NODE_NEG, neg_tok, left, NULL);
+        left = make_node(p, NODE_NEG, neg_tok, left, NULL);
     }
 
     while (parser_is_match(p, TOKEN_PLUS) || parser_is_match(p, TOKEN_MINUS)) {
         token_t op = parser_advance(p); // get plus or minus
-        left = make_node(NODE_BINOP, op, left, parse_factor(p));
+        left = make_node(p, NODE_BINOP, op, left, parse_factor(p));
     }
 
     return left;
@@ -406,7 +411,7 @@ ast_node_t* parse_factor(parser_t* p) {
             right = parse_atomic(p);
         }
 
-        left = make_node(NODE_BINOP, op, left, right);
+        left = make_node(p, NODE_BINOP, op, left, right);
     }
 
     return left;
@@ -415,11 +420,11 @@ ast_node_t* parse_factor(parser_t* p) {
 // call = IDENTIFIER { atomic }
 ast_node_t* parse_call(parser_t* p) {
     token_t tok = parser_match(p, TOKEN_IDENTIFIER);
-    ast_node_t* left = make_node(NODE_VAR, tok, NULL, NULL);
+    ast_node_t* left = make_node(p, NODE_VAR, tok, NULL, NULL);
 
     while (is_atomic_start(parser_current(p).token)) {
         ast_node_t* arg = is_lambda_start(p) ? parse_lambda(p) : parse_atomic(p);
-        left = make_node(NODE_APPLY, tok, left, arg);
+        left = make_node(p, NODE_APPLY, tok, left, arg);
     }
 
     return left;
@@ -431,11 +436,11 @@ ast_node_t* parse_atomic(parser_t* p) {
 
     switch (parser_current(p).token) {
     case TOKEN_INT:
-        return make_node(NODE_INT, parser_match(p, TOKEN_INT), NULL, NULL);
+        return make_node(p, NODE_INT, parser_match(p, TOKEN_INT), NULL, NULL);
     case TOKEN_STR:
-        return make_node(NODE_STR, parser_match(p, TOKEN_STR), NULL, NULL);
+        return make_node(p, NODE_STR, parser_match(p, TOKEN_STR), NULL, NULL);
     case TOKEN_IDENTIFIER:
-        return make_node(NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
+        return make_node(p, NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
     case TOKEN_OPENPAREN:
         parser_match(p, TOKEN_OPENPAREN);
         node = parse_expr_statement(p);
@@ -444,6 +449,6 @@ ast_node_t* parse_atomic(parser_t* p) {
     default:
         printk("[!] Error: unexpected token %d\n", parser_current(p).token);
         p->error = true;
-        return make_node(NODE_ERROR, parser_advance(p), NULL, NULL);
+        return make_node(p, NODE_ERROR, parser_advance(p), NULL, NULL);
     }
 }
