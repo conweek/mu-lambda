@@ -30,6 +30,7 @@ typedef enum atomic_token_t {
     TOKEN_MINUS,
     TOKEN_TIMES,
     TOKEN_DIVIDE,
+    TOKEN_MODULO,
     // Comparision
     TOKEN_GREATERTHAN,
     TOKEN_GREATERTHANEQUAL,

@@ -586,6 +586,12 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
             return make_int(l <= r);
         case TOKEN_TIMES:
             return make_int(l * r);
+        case TOKEN_MODULO:
+            if (r == 0) {
+                printk("[!] Error: modulo by zero\n");
+                return NULL;
+            }
+            return make_int(l % r);
         case TOKEN_DIVIDE:
             if (r == 0) {
                 printk("[!] Error: division by zero\n");

@@ -1,35 +1,33 @@
 ---
 name: mu-lambda
-description: Use when the user asks to write, generate, review, or fix a program in μλ (mu-lambda) — the small functional language implemented by this repo's repl/ (tokeniser.c, parser.c, interpreter.c). Trigger on requests like "write a mu-lambda program that...", "give me a μλ function for...", "why won't this μλ program parse", or work touching docs/rules.md, docs/language-reference.md, or repl/program.txt-style source files.
+description: Use when the user asks to write, generate, review, or fix a program in μλ (mu-lambda) — the small functional language implemented by this repo's repl/ (tokeniser.c, parser.c, interpreter.c). Trigger on requests like "write a mu-lambda program that...", "give me a μλ function for...", "why won't this μλ program parse", or work touching examples/*.mu, docs/rules.md, or docs/language-reference.md.
 ---
 
 # μλ (Mu-Lambda)
 
 A small, purely functional, Haskell/Python-flavored language, tokenised/parsed/interpreted by
-`repl/src/{tokeniser,parser,interpreter}.c`. Ground truth for the grammar lives in
-[docs/rules.md](../../../docs/rules.md) (formal EBNF) and
-[docs/language-reference.md](../../../docs/language-reference.md) (prose + examples) — re-read
-those two files if this skill's description of behavior ever seems to disagree with them, since
-they're the canonical source and this file is a derived summary. Everything below was
-cross-checked directly against the tokeniser/parser/interpreter source, so it also documents a
-few real quirks the docs gloss over.
+`repl/src/{tokeniser,parser,interpreter}.c` and running on Zephyr.
+
+**The C source is the only ground truth.** `docs/rules.md` and `docs/language-reference.md` are
+now substantially out of date — they document neither the bitwise operators, the string escapes,
+nor any builtin beyond the original four. Do not trust them; read
+`repl/src/{tokeniser,parser,interpreter,builtins}.c` and `repl/src/main.c` when in doubt. Working,
+tested programs live in `examples/`.
 
 ## Core rules
 
 - No semicolons or statement terminators other than `\n`.
-- No `for`/`while` loops — this is a pure functional language. The only repetition mechanisms are
-  recursion and an entry-point function returning itself (see Entry point).
-- No pattern matching.
-- Two data types only: **integers** and **strings**. List syntax `[...]` is tokenised but the
-  parser does not accept it anywhere — **never emit `[...]` in a program**, it will fail to parse.
+- No `for`/`while` loops. The only repetition is recursion, plus an entry point returning itself.
+- No pattern matching, no lists, no error handling. A builtin that fails aborts the whole program.
+- Two data types only: **integers** (32-bit signed) and **strings**. There are no lists: `[` and
+  `]` are not recognised by the tokeniser at all, so they are a tokenising error, not a parse
+  error. (`VAR_LIST` still sits in the `value_type_t` enum but nothing ever produces it.)
+- The tokeniser recognises only the characters listed under Operators, plus `( ) " \ : ->` and
+  identifier/number characters. **Any other character, e.g. `[ ] # @ ? $ ; , .`, wedges the REPL** —
+  see Gotchas.
 - Variables are **immutable**: `name = expr` fails at runtime if `name` is already bound
-  **anywhere in an enclosing scope**, not just the current block. This is stricter than normal
-  shadowing — you cannot reuse an outer/global name for a new local via `=`, even inside a nested
-  `if`/function body. Function parameters are the one exception (they bind fresh per call, not
-  via `=`).
-- Comments: `// rest of line`.
-- Blocks (function bodies, `if`/`else` bodies) are closed with `end`, not indentation.
-  Indentation is cosmetic only.
+  **anywhere in an enclosing scope**. Function parameters are the exception (fresh per call).
+- Comments: `// rest of line`. Blocks close with `end`; indentation is cosmetic.
 
 ## Keywords, operators, literals
 
@@ -38,99 +36,116 @@ few real quirks the docs gloss over.
 | `fn` | function definition |
 | `ts` | tail-call signal, prefixes `fn` |
 | `ep` | marks the program's entry-point function |
-| `return` | return a value from a function body |
-| `if` / `else` | conditional |
-| `end` | closes a function/if/else block |
+| `return` / `if` / `else` / `end` | return, conditional, block close |
 
 | Symbol | Meaning |
 |---|---|
-| `+ - * /` | arithmetic (ints only) |
-| `> <` | comparison |
-| `== !=` | (in)equality |
-| `=` | assignment (first binding only, see immutability above) |
-| `->` | separates a function's name from its params, and a lambda's params from its body |
-| `:` | opens a block (`if cond:`, `fn f -> args:`) |
-| `\` | starts a lambda: `\x -> expr` |
-| `( )` | grouping / lambda literal wrapper / call-argument grouping |
-| `"..."` | string literal |
-| `123` | integer literal (decimal) |
-| `identifier` | `[A-Za-z_][A-Za-z0-9_]*`, also how you call built-ins and functions |
+| `+ - * / %` | arithmetic (ints only). `/` truncates toward zero, `%` takes the sign of the left operand (`-17 % 5` is `-2`); either by zero is a runtime error |
+| `> < >= <= == !=` | comparison, yields 1 or 0 |
+| `& \| ^ << >> ~` | bitwise and, or, xor, shifts, complement |
+| `=` | assignment (first binding only) |
+| `->` | separates a function name from params, and lambda params from body |
+| `:` | opens a block | 
+| `\` | starts a lambda: `(\x -> x + 1)` |
+| `( )` `"..."` `123` | grouping, string literal, integer literal |
 
-### Built-ins
+Because comparisons yield 1/0, `&` and `|` double as logical and/or:
+`((cur==1) & ((n==2) | (n==3)))`. Parenthesise each comparison.
 
-Six are registered (`repl/src/builtins.c`); anything else (`int`, `getLine`, string/list ops) does
-not exist — do not call it. A built-in given the wrong argument type is now a hard runtime error
-(it returns an internal error value that aborts evaluation), not a silent no-op.
+### String escapes
+
+Decoded in `convert_value` (interpreter.c): `\n` `\t` `\r` `\e` (ESC, 0x1b) `\\` `\"`. An unknown
+escape yields the bare character. This is the **only** way to get control characters into a
+program: `mu_readline` drops every byte outside printable ASCII and swallows a raw ESC, so ANSI
+sequences must be written as `"\e[2J"`, never as a literal escape byte.
+
+## Built-ins
+
+Nine are registered in `repl/src/main.c`. Anything else does not exist — do not call it. A builtin
+given the wrong type is a hard runtime error that aborts evaluation.
 
 | Call | Signature | Behavior |
 |---|---|---|
-| `print x` | 1 arg: int or string | prints it, evaluates to no-result |
-| `sleep n` | 1 arg: int | blocks for `n` milliseconds (`k_msleep`), evaluates to no-result |
-| `gpioSet dev pin val` | 3 args, curried: string, int, int | configures `pin` on device `dev` as `OUTPUT \| PULL_UP` and sets it to `val` (0/1); evaluates to no-result |
-| `gpioRead dev pin` | 2 args, curried: string, int | configures `pin` on device `dev` as `INPUT` and returns its level as an int |
-| `i2cWrite dev addr byte` | 3 args, curried: string, int, int | writes `byte` to I2C slave at `addr` on bus `dev`; evaluates to no-result |
-| `i2cRead dev addr` | 2 args, curried: string, int | reads one byte from I2C slave at `addr` on bus `dev`; returns the byte as an int |
+| `print x` | int or string | writes it **plus a newline** |
+| `write x` | int or string | writes it with **no newline** — needed for colour codes and partial lines |
+| `sleep n` | int | blocks `n` ms |
+| `halt x` | any (ignored) | stops the program immediately; unwinds like ctrl-c so the caller rolls the submission back |
+| `reset x` | any (ignored) | throws away every definition and clears the arena |
+| `gpioSet dev pin val` | string, int, int | configures `pin` `OUTPUT \| PULL_UP`, sets it |
+| `gpioRead dev pin` | string, int | configures `pin` `INPUT`, returns its level |
+| `i2cRegWrite dev addr reg val` | string, int, int, int | writes `val` to register `reg` |
+| `i2cRegRead dev addr reg` | string, int, int | reads register `reg`, returns **unsigned 0..255** |
 
-All hardware builtins (`gpioSet`, `gpioRead`, `i2cWrite`, `i2cRead`) are curried the same way
-user-defined functions are — `gpioSet dev` alone returns a partially-applied value waiting on
-`pin`, etc. `dev` is looked up with `device_get_binding`, so it must match a device's `label` in
-the *target board's* devicetree — this is board-specific and there is no such labeled node in the
-`native_sim` board used for `repl/build.sh`, so a program calling these won't find a ready device
-there; it needs a real board (or a `native_sim` overlay adding labeled emulation nodes) to actually
-exercise. `gpioSet` always configures the pin `OUTPUT | PULL_UP` (no way to request a plain output
-yet — a known TODO in the source). I2C builtins require `CONFIG_I2C=y` in `prj.conf` and the I2C
-bus node needs a `label` property in the board's DTS overlay for `device_get_binding` to find it.
+All hardware builtins curry like user functions — `i2cRegRead "i2c1" 29` is a reusable reader.
 
-## Grammar (as actually implemented by repl/src/parser.c)
+`print`/`write` go straight to the console, **not** through `printk`, because printk prefixes every
+call with `ESC[0;39m` which would wipe out any colour the program set.
+
+`dev` is resolved by `device_get_binding`, so the node needs a **`label` property** in the board
+overlay (`repl/boards/<board>.overlay`), e.g. `&i2c1 { label = "i2c1"; status = "okay"; };`. No such
+labelled node exists on `native_sim`, so hardware programs only run on real boards.
+
+**`i2cRegRead` returns unsigned.** Sensor registers that are signed two's-complement (e.g. MMA8452
+`OUT_X_MSB`) read as 128..255 where you expect -128..-1. Convert:
+`fn sgn -> v: if v > 127: return v - 256 end return v end`
+
+## Grammar (as implemented by repl/src/parser.c)
 
 ```
 program      = { statement NEWLINE } [ EP ( tsFn | fn ) NEWLINE ] EOF
 block        = { statement NEWLINE } END
 statement    = fn | tsFn | ifStmt | RETURN exprStatement
              | IDENTIFIER ASSIGNMENT exprStatement          // x = expr
-             | IDENTIFIER { atomic }                        // bare call as a statement
+             | call                                         // bare call as a statement
 fn           = FN IDENTIFIER ARROW { IDENTIFIER } COLON NEWLINE block
 tsFn         = TS fn
 ifStmt       = IF exprStatement COLON NEWLINE block-body
                [ ELSE COLON NEWLINE block-body ] END        // shares END with the if
 exprStatement= comparison
-comparison   = (lambda | term) [ (== | != | > | <) (lambda | term) ]   // NOT chainable
+comparison   = (lambda | term) [ (== | != | > | < | >= | <=) (lambda | term) ]  // NOT chainable
 lambda       = "(" "\" IDENTIFIER { IDENTIFIER } "->" exprStatement ")" { atomic }
 term         = [ "-" ] factor { ("+" | "-") factor }
-factor       = (call | atomic) { ("*" | "/") (call | atomic) }
-call         = IDENTIFIER { atomic }                        // curried application
+factor       = bitwise { ("*" | "/" | "%") bitwise }
+bitwise      = [ "~" ] (call | atomic) { ("&" | "|" | "^" | "<<" | ">>") (call | atomic) }
+call         = IDENTIFIER { atomic | lambda }               // curried application
 atomic       = INT | STR | IDENTIFIER | "(" exprStatement ")"
 ```
 
-Precedence, high to low: `* /`  >  `+ -` (with unary `-`)  >  comparison (single level, no
-chaining: `a == b == c` is **not** valid — restructure with parens/helper calls instead).
-Function/lambda application binds *tighter* than `+ -`, because `call`/`lambda` only consume
-`atomic` arguments: `f x + 1` parses as `(f x) + 1`, not `f (x + 1)`.
+Precedence, high to low: bitwise > `* / %` > `+ -` (with unary `-`) > comparison (single level, no
+chaining). Application binds tighter than `+ -`: `f x + 1` is `(f x) + 1`.
 
-### Gotchas worth remembering when generating code
+Note bitwise binds **tighter** than arithmetic, the opposite of C. `a & b + c` is `(a & b) + c`.
+Parenthesise when mixing.
 
-- **A bare `-N` cannot be a call argument.** `atomic` doesn't include unary minus, so `f -5`
-  parses as `f - 5` (binary subtraction on `f`, which will then fail at eval time unless `f` is an
-  int). Always wrap negative literal arguments: `f (-5)`.
-- **Lambdas must be parenthesized**, even as a bare expression: `\x -> x + 1` alone is not valid at
-  statement/expr position — write `(\x -> x + 1)`. A parenthesized lambda can be immediately
-  applied: `(\x -> x + 1) 5`.
-- **Comparisons don't chain** and can't be nested arithmetic without parens on both sides if mixed
-  with lambdas — write `(a > b)` explicitly when composing.
-- **Every `if`/`else` still needs one shared `end`** — not one `end` per branch.
-- Reassigning a name that exists in *any* enclosing scope is a runtime error — pick fresh names
-  for locals that shadow outer ones.
-- Calling a function with fewer args than declared **curries**: it returns a partially-applied
-  closure rather than erroring. Calling with the exact remaining args resumes evaluation.
-- `ts`-tagged functions promise the interpreter every recursive call is in tail position — the
-  interpreter turns those into thunks and trampolines them so recursion runs in constant C-stack
-  space. Tagging a non-tail-recursive function `ts` is documented as "will likely result in program
-  death" — only use `ts` when the recursive call is the literal `return`ed expression.
+### Gotchas
 
-## Entry point
+- **An unrecognised character hangs the REPL, it does not just error.** `tokenise()` returns
+  `TOKEN_ERR` *without advancing the cursor*, and `get_token_list()` neither bounds its write
+  index nor stops on `TOKEN_ERR`, so it fills the token array and keeps writing past it. A single
+  stray `[` or `#` floods the console with `unexpected token 0` and the session never comes back.
+  Verified: a submission after one never runs.
+- **`~` only works in leading position.** `bitwise` accepts `~` before its *first* operand only, so
+  `a & ~b` is a parse error. Write `a & (~b)` (parens make it an atomic) or `~b & a`.
+- **A bare `-N` cannot be a call argument.** `f -5` parses as `f - 5`. Write `f (-5)`. In a
+  comparison it is fine, since the right side is a `term`: `x < -20` parses.
+- **Zero-parameter functions cannot be called.** `call` with no arguments is just a variable
+  reference, which evaluates to the closure itself. Give every helper a dummy parameter and call it
+  as `btn 0`. Only `ep` may take no parameters.
+- **Redefining a `fn` silently does nothing.** `NODE_FN` skips the duplicate check that
+  `NODE_ASSIGN` has, and lookup returns the *first* match, so the old definition keeps winning with
+  no error. Use `reset 0` to clear a session.
+- **Lambdas must be parenthesized**: `(\x -> x + 1)`, and may be applied directly: `(\x -> x + 1) 5`.
+- **Comparisons don't chain** — `a == b == c` is invalid.
+- **Every `if`/`else` shares one `end`**, not one per branch. An `if` with no `else` is the normal
+  way to write an early return.
+- Calling with fewer args than declared **curries** rather than erroring.
+- `ts` promises every recursive call is in tail position; the interpreter trampolines those in
+  constant stack. Only tag a function `ts` when the recursive call is the literal `return`ed
+  expression. Non-tail statements in a `ts` body (`print x`, `sleep n`) are fine.
 
-Exactly one `ep`-marked function, and it must be the very last thing in the program (after every
-other top-level `fn`/statement), and it must take **no** parameters:
+## Entry point and looping
+
+Exactly one `ep` function, last in the file, taking **no** parameters:
 
 ```
 ep fn main -> :
@@ -138,122 +153,135 @@ ep fn main -> :
 end
 ```
 
-The interpreter calls this function. If its body evaluates to *the function's own closure value*
-(i.e. literally `return main`), the interpreter loops and calls it again instead of terminating —
-this is the only looping construct in the language, used for REPL-style repeat-until-done
-programs.
+Two looping idioms:
+- `return main` from the entry point re-runs it forever (no state carried).
+- A `ts` helper that tail-calls itself, carrying state in parameters. This is the only way to keep
+  state across iterations, since there are no mutable variables.
+
+Multiple values cannot be returned. Pack them into one int with shifts, e.g.
+`return (seed << 6) | (y << 3) | x`, and unpack with `>>` and `&`.
+
+## Size limits — check these before writing
+
+- **`STMT_MAX` 4096 bytes**: the whole program, comments and all, must fit in one batch submission.
+- **`LINE_MAX` 128 bytes** per line.
+- Arenas (`repl/src/mu_arena.c`): session 65536, scratch 69632.
+
+`examples/snake.mu` sits near the 4096 ceiling, so keep comments lean. Measure with `wc -c`.
+
+## Memory and lifecycle
+
+The interpreter allocates from a bump arena with no per-object free. It stays flat because:
+- non-binding statements are rewound after they run,
+- `x = expr` keeps the scalar and rewinds the working,
+- the `ts` trampoline lifts the pending call's int arguments clear and rewinds each iteration.
+
+A submission is kept only if it ran to completion **and** defined something. An error, a ctrl-c, or
+`halt` rolls the whole submission back — arena and bindings — so nothing leaks. Ctrl-c is checked
+in `evaluate_tc`, so it interrupts a running program. `reset 0` clears everything and re-registers
+builtins.
 
 ## Worked examples
 
-Currying:
+Currying and closures:
 
 ```
 fn add -> a b:
     return a + b
 end
-
 add5 = add 5
 
-ep fn main -> :
-    return add5 10   // 15
-end
-```
-
-Closures / lambdas:
-
-```
 fn makeAdder -> n:
     return (\x -> x + n)
 end
 
 ep fn main -> :
     add10 = makeAdder 10
-    return add10 32   // 42
+    print (add5 10)     // 15
+    return add10 32     // 42
 end
 ```
 
-Tail-recursive factorial with `print`:
+Tail recursion carrying state:
 
 ```
 ts fn fact -> acc n:
     if n == 0:
         return acc
-    else:
-        return fact (acc * n) (n - 1)
     end
+    return fact (acc * n) (n - 1)
 end
 
 ep fn main -> :
-    result = fact 1 5
-    print result
-    return result
+    print (fact 1 5)    // 120
+    return 0
 end
 ```
 
-Blinking a GPIO pin forever, using the `ep`-returns-itself loop plus `sleep` (board-specific: swap
-`"GPIO_0"` for a device label that's actually in the target board's devicetree):
+Animating in place with ANSI escapes (see `examples/game-of-life.mu`):
 
 ```
+ts fn loop -> g:
+    write "\e[H"                        // home the cursor, no newline
+    print "\e[1;38;5;51m  Title\e[0m\e[K"
+    write "\e[38;5;220m  gen "
+    write g
+    print "\e[0m\e[K"                   // \e[K clears any stale tail
+    sleep 200
+    return loop (g + 1)
+end
+
 ep fn main -> :
-    gpioSet "GPIO_0" 13 1
-    sleep 500
-    gpioSet "GPIO_0" 13 0
-    sleep 500
-    return main
+    print "\e[2J\e[?25l"                // clear once, hide the cursor
+    return loop 1
 end
 ```
 
-Writing to an I2C device in a loop (board-specific: swap `"i2c0"` for a bus label in the target
-board's devicetree, and `0x3C` for the slave address):
+The REPL re-emits `ESC[0m ESC[?25h` before every prompt, so a program that hides the cursor or sets
+a colour never leaks it into the prompt.
 
-```
-ep fn main -> :
-    i2cWrite "i2c0" 60 255
-    sleep 1000
-    return main
-end
-```
+## Checklist before handing over a program
 
-Partial application works naturally — bind a device+address once and reuse it:
+1. Every `fn`/`ts fn` ends with `end`; every `if`/`else` shares one `end`.
+2. Exactly one `ep fn <name> -> :`, no params, placed last.
+3. Only the nine real builtins; no lists; no characters outside the recognised set.
+4. Negative literal *arguments* and bare lambdas parenthesised; `~` leading or parenthesised.
+5. No name assigned twice across nested scopes; helpers take at least one parameter.
+6. `wc -c` under 4096, longest line under 128.
 
-```
-ep fn main -> :
-    oled = i2cWrite "i2c0" 60
-    oled 255
-    oled 0
-    val = i2cRead "i2c0" 60
-    print val
-    return main
-end
-```
+## Building and running
 
-## Writing a new program — checklist
-
-1. Every `fn`/`ts fn` block ends with `end`; every `if`/`else` shares one `end`.
-2. Exactly one `ep fn <name> -> :` (or `ep ts fn`), no params, placed last.
-3. No `[...]` list literals, no unregistered built-ins (only `print`, `sleep`, `gpioSet`,
-   `gpioRead`, `i2cWrite`, `i2cRead` exist).
-4. Negative literal arguments and bare lambdas are parenthesized (see Gotchas).
-5. No name is assigned twice across nested scopes (function params excepted).
-6. Comparisons are not chained.
-
-## Verifying a program you wrote
-
-`repl/src/parser.c` and `tokeniser.c` include `<zephyr/kernel.h>` directly (for `printk`/`k_malloc`),
-so **you cannot syntax-check a program with a plain `gcc -I repl/include` build** — it fails with
-`fatal error: zephyr/kernel.h: No such file or directory`. `tests/run.sh` (which wraps
-`tests/src/parser-test.c` + `tests/src/tokeniser-test.c`) has the same requirement and will fail
-the same way unless Zephyr's headers are already on the include path.
-
-The real build goes through the Zephyr west workspace: see [repl/build.sh](../../../repl/build.sh)
-(defaults to `native_sim`), which activates the separate `~/zephyrproject` west workspace and runs
-`west build -b native_sim -s repl -d repl/build`. Once that's built:
+`parser.c`/`tokeniser.c` include `<zephyr/kernel.h>`, so a plain `gcc` syntax check will not work.
+Build through the west workspace:
 
 ```bash
-./repl/build/zephyr/zephyr.exe -uart_stdinout      # interactive REPL
-./repl/upload.sh program.txt <device>              # batch-run a source file (or pipe to native_sim's stdin equivalent)
+./repl/build.sh native_sim          # activates ~/zephyrproject, builds repl/build
 ```
 
-Offer to build/run this way if the user wants to see actual output. If only a syntax sanity-check
-is needed and a Zephyr toolchain isn't available, review the program by hand against the grammar
-and gotchas above rather than claiming it was executed.
+For the nucleo, the installed Zephyr SDK version is rejected by this tree, so pass a system
+cross-compiler:
+
+```bash
+export ZEPHYR_TOOLCHAIN_VARIANT=cross-compile CROSS_COMPILE=/usr/bin/arm-none-eabi-
+west build -b nucleo_f429zi -s repl -d /tmp/build_nucleo
+```
+
+To actually run a program on `native_sim`, the binary needs a **tty** and a startup delay — piping
+a file straight in silently does nothing. Feed it through a pty, in batch mode (ctrl-e … ctrl-d),
+with the pty in raw mode so ctrl-d is not eaten:
+
+```bash
+( sleep 2; printf '\x05'; sleep 0.5; cat prog.mu; sleep 1; printf '\x04'; sleep 20 ) \
+  | timeout 30 script -qec "stty raw -echo; ./repl/build/zephyr/zephyr.exe -uart_stdinout" /dev/null \
+  | tr -d '\r'
+```
+
+Batch mode echoes the source before running it, so when counting output, restrict to the region
+after the `=== output ===` separator or you will match your own program text.
+
+Hardware programs cannot run on `native_sim` (`device_get_binding` finds nothing). Keep the
+hardware read in a one-line function so it can be stubbed:
+`fn rx -> u: return sgn (i2cRegRead "i2c1" 29 1) end` → swap the body for `return 0` to test the
+logic on the simulator. Every example in `examples/` is written this way.
+
+On real hardware use `./repl/upload.sh prog.mu /dev/ttyACM0`.

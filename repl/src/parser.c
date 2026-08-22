@@ -397,11 +397,11 @@ ast_node_t* parse_term(parser_t* p) {
     return left;
 }
 
-// factor = bitwise { (TIMES | DIVIDE) bitwise }
+// factor = bitwise { (TIMES | DIVIDE | MODULO) bitwise }
 ast_node_t* parse_factor(parser_t* p) {
     ast_node_t* left = parse_bitwise(p);
-    while (parser_is_match(p, TOKEN_TIMES) || parser_is_match(p, TOKEN_DIVIDE)) {
-        token_t op = parser_advance(p); // grab * or /
+    while (parser_is_match(p, TOKEN_TIMES) || parser_is_match(p, TOKEN_DIVIDE) || parser_is_match(p, TOKEN_MODULO)) {
+        token_t op = parser_advance(p); // grab * or / or %
         ast_node_t* right = parse_bitwise(p);
         left = make_node(p, NODE_BINOP, op, left, right);
     }

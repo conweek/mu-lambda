@@ -25,6 +25,10 @@ token_t tokenise(char** str) {
         UPDATE_TOKEN(TOKEN_PLUS, *str, 1);
         (*str)++;
         return token;
+    case '%':
+        UPDATE_TOKEN(TOKEN_MODULO, *str, 1);
+        (*str)++;
+        return token;
     case '*':
         UPDATE_TOKEN(TOKEN_TIMES, *str, 1);
         (*str)++;
@@ -102,7 +106,8 @@ token_t tokenise(char** str) {
             UPDATE_TOKEN(TOKEN_NOTEQUALTO, *str, 2);
             (*str) += 2;
         } else {
-            UPDATE_TOKEN(TOKEN_ERR, NULL, 0);
+            UPDATE_TOKEN(TOKEN_ERR, *str, 1);
+            (*str)++;
         }
 
         return token;
@@ -201,23 +206,44 @@ token_t tokenise(char** str) {
         return token;
     }
 
+    /* Not part of the language. Consume it anyway: an error token that leaves
+     * the cursor where it is would have the caller spin on the same byte. */
+    UPDATE_TOKEN(TOKEN_ERR, *str, 1);
+    (*str)++;
+
     return token;
 }
 
 token_t* get_token_list(char** str) {
     // Worst case is one token per character, plus the EOF token
-    token_t* tokenList = memrina_alloc_array(mu_scratch, strlen(*str) + 1, sizeof(token_t));
+    size_t cap = strlen(*str) + 1;
+    token_t* tokenList = memrina_alloc_array(mu_scratch, cap, sizeof(token_t));
 
     if (!tokenList) {
         return NULL;
     }
 
     char* tempStr = *str;
-    int count = 0;
+    size_t count = 0;
 
-    do {
-        tokenList[count] = tokenise(&tempStr);
-    } while (tokenList[count++].token != TOKEN_EOF);
+    for (;;) {
+        token_t tok = tokenise(&tempStr);
+        tokenList[count++] = tok;
+
+        if (tok.token == TOKEN_EOF) {
+            break;
+        }
+
+        /* Stop at the first bad token, but still terminate the stream: the
+         * parser scans for EOF and would otherwise read past the array. The
+         * capacity check is belt and braces now every token consumes a byte. */
+        if (tok.token == TOKEN_ERR || count + 1 >= cap) {
+            tokenList[count].token = TOKEN_EOF;
+            tokenList[count].str = tempStr;
+            tokenList[count].len = 0;
+            break;
+        }
+    }
 
     return tokenList;
 }
