@@ -17,7 +17,7 @@ static inline token_t parser_advance(parser_t* p) {
 
 // Creates a new parser instance
 parser_t parser_init(token_t* tokens) {
-    parser_t p = {.tokens = tokens, .pos = 0};
+    parser_t p = {.tokens = tokens, .pos = 0, .error = false};
     return p;
 }
 
@@ -32,14 +32,19 @@ static bool parser_is_match(parser_t* p, atomic_token_t type) {
     return true;
 }
 
-// Asserts token is what is expected then advances to the next token
+// Asserts token is what is expected then advances to the next token.
+// On mismatch, records the error and hands back a harmless TOKEN_ERR
+// sentinel (instead of exiting the process) so the caller can carry on
+// building whatever node it was building.
 static token_t parser_match(parser_t* p, atomic_token_t type) {
     if (parser_is_match(p, type)) {
         return parser_advance(p);
     }
 
+    // TODO: Change to printk/LOGERR for Zephyr
     fprintf(stderr, "parse error: expected token %d, got %d\n", type, parser_current(p).token);
-    exit(1);
+    p->error = true;
+    return (token_t){.token = TOKEN_ERR, .str = NULL, .len = 0};
 }
 
 // Skips all newline tokens
@@ -89,15 +94,16 @@ ast_node_t* parse_program(parser_t* p) {
     ast_node_t* root = NULL;
     ast_node_t* tail = NULL;
     ast_node_t* block = NULL;
+    token_t tok;
 
-    while (parser_current(p).token != TOKEN_EOF && parser_current(p).token != TOKEN_ENTRYPOINT) {
-
+    while (!parser_is_match(p, TOKEN_EOF) && !parser_is_match(p, TOKEN_ENTRYPOINT)) {
         switch (parser_current(p).token) {
         case TOKEN_COMMENT:
             parser_match(p, TOKEN_COMMENT);
             break;
         default:
-            block = make_node(NODE_BLOCK, parser_current(p), parse_statement(p), NULL);
+            tok = parser_current(p);
+            block = make_node(NODE_BLOCK, tok, parse_statement(p), NULL);
             if (!root) {
                 root = block;
                 tail = block;
@@ -125,7 +131,8 @@ ast_node_t* parse_program(parser_t* p) {
             fprintf(stderr,
                     "parse error: EP must be followed by a function definition, got token %d\n",
                     parser_current(p).token);
-            exit(1);
+            p->error = true;
+            entry = make_node(NODE_ERROR, parser_advance(p), NULL, NULL);
         }
 
         ast_node_t* entry_point = make_node(NODE_ENTRY, tok, entry, NULL);
@@ -147,6 +154,7 @@ ast_node_t* parse_block(parser_t* p) {
     ast_node_t* root = NULL;
     ast_node_t* tail = NULL;
     ast_node_t* block = NULL;
+    token_t tok;
 
     while (!parser_is_match(p, TOKEN_END)) {
         switch (parser_current(p).token) {
@@ -154,7 +162,8 @@ ast_node_t* parse_block(parser_t* p) {
             parser_match(p, TOKEN_COMMENT);
             break;
         default:
-            block = make_node(NODE_BLOCK, parser_current(p), parse_statement(p), NULL);
+            tok = parser_current(p);
+            block = make_node(NODE_BLOCK, tok, parse_statement(p), NULL);
             if (!root) {
                 root = block;
                 tail = block;
@@ -193,13 +202,15 @@ ast_node_t* parse_statement(parser_t* p) {
             // a bare identifier is not a valid statement
             // TODO: Change to printk/LOGERR for Zephyr
             fprintf(stderr, "parse error: unexpected token %d, expected a statement\n", tok.token);
-            exit(1);
+            p->error = true;
+            return make_node(NODE_ERROR, tok, NULL, NULL);
         }
-        break; // unreachable
     default:
         // TODO: Change to printk/LOGERR for Zephyr
-        fprintf(stderr, "parse error: unexpected token %d, expected a statement\n", parser_current(p).token);
-        exit(1);
+        fprintf(stderr, "parse error: unexpected token %d, expected a statement\n",
+                parser_current(p).token);
+        p->error = true;
+        return make_node(NODE_ERROR, parser_advance(p), NULL, NULL);
     }
 }
 
@@ -216,7 +227,8 @@ ast_node_t* parse_if(parser_t* p) {
 
     while (!(parser_is_match(p, TOKEN_ELSE) || parser_is_match(p, TOKEN_END))) {
         // The true block
-        ast_node_t* blk = make_node(NODE_BLOCK, parser_current(p), parse_statement(p), NULL);
+        tok = parser_current(p);
+        ast_node_t* blk = make_node(NODE_BLOCK, tok, parse_statement(p), NULL);
 
         if (!then_root) {
             then_root = blk;
@@ -241,7 +253,8 @@ ast_node_t* parse_if(parser_t* p) {
         ast_node_t* else_tail = NULL;
 
         while (!parser_is_match(p, TOKEN_END)) {
-            ast_node_t* blk = make_node(NODE_BLOCK, parser_current(p), parse_statement(p), NULL);
+            tok = parser_current(p);
+            ast_node_t* blk = make_node(NODE_BLOCK, tok, parse_statement(p), NULL);
             if (!else_root) {
                 else_root = blk;
                 else_tail = blk;
@@ -324,7 +337,6 @@ ast_node_t* parse_lambda(parser_t* p) {
 }
 
 // exprStatement = comparison
-// Parses an expression statement
 ast_node_t* parse_expr_statement(parser_t* p) {
     return parse_comparison(p);
 }
@@ -367,10 +379,6 @@ ast_node_t* parse_term(parser_t* p) {
 }
 
 // factor = (call | atomic) { (TIMES | DIVIDE) (call | atomic) }
-// call always takes priority over atomic's IDENTIFIER form when the
-// lookahead is IDENTIFIER: call = IDENTIFIER { atomic } already covers the
-// zero-argument (bare variable) case, so atomic's IDENTIFIER form is never
-// tried separately here.
 ast_node_t* parse_factor(parser_t* p) {
 
     ast_node_t* left;
@@ -396,8 +404,6 @@ ast_node_t* parse_factor(parser_t* p) {
 }
 
 // call = IDENTIFIER { atomic }
-// A bare identifier (zero trailing atomics) is just a variable reference;
-// one or more trailing atomics form a left-associative application chain.
 ast_node_t* parse_call(parser_t* p) {
     token_t tok = parser_match(p, TOKEN_IDENTIFIER);
     ast_node_t* left = make_node(NODE_VAR, tok, NULL, NULL);
@@ -411,7 +417,6 @@ ast_node_t* parse_call(parser_t* p) {
 }
 
 // atomic = INT | STR | IDENTIFIER | OPENPAREN exprStatement CLOSEPAREN
-// Parses an atomic token
 ast_node_t* parse_atomic(parser_t* p) {
     ast_node_t* node;
 
@@ -427,10 +432,10 @@ ast_node_t* parse_atomic(parser_t* p) {
         node = parse_expr_statement(p);
         parser_match(p, TOKEN_CLOSEPAREN);
         return node;
-
-    // TODO: Change to printk/LOGERR for Zephyr
     default:
+        // TODO: Change to printk/LOGERR for Zephyr
         fprintf(stderr, "parse error: unexpected token %d\n", parser_current(p).token);
-        exit(1);
+        p->error = true;
+        return make_node(NODE_ERROR, parser_advance(p), NULL, NULL);
     }
 }

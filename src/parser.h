@@ -1,6 +1,8 @@
 #ifndef PARSER_H_
 #define PARSER_H_
 
+#include <stdbool.h>
+
 #include "tokeniser.h"
 
 typedef enum node_type_t {
@@ -17,7 +19,10 @@ typedef enum node_type_t {
     NODE_RETURN,
     NODE_TAILCALL,
     NODE_BLOCK,
-    NODE_ENTRY
+    NODE_ENTRY,
+    NODE_ERROR // stands in for a construct the parser couldn't make sense of;
+               // holds the offending token so the tree can be walked to
+               // find every parse error in one pass
 } node_type_t;
 
 typedef struct ASTNode {
@@ -31,6 +36,9 @@ typedef struct ASTNode {
 typedef struct Parser {
     token_t* tokens;
     int pos;
+    bool error; // set once any parse error has been recorded; the AST may
+                // still be walked (NODE_ERROR nodes mark where), but the
+                // caller should not run it through the interpreter
 } parser_t;
 
 parser_t parser_init(token_t* tokens);

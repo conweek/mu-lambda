@@ -20,6 +20,7 @@ static const char* node_type_str(node_type_t type)
         case NODE_TAILCALL: return "TAILCALL";
         case NODE_BLOCK:    return "BLOCK";
         case NODE_ENTRY:    return "ENTRY";
+        case NODE_ERROR:    return "ERROR";
         default:            return "???";
     }
 }
@@ -46,6 +47,7 @@ static void print_ast(ast_node_t* node, int depth)
     switch (node->type) {
     case NODE_INT:
     case NODE_STR:
+    case NODE_ERROR:
         print_token(node->token);
         printf("\n");
         break;
@@ -152,8 +154,8 @@ int main(int argc, char** argv)
     printf("\n--- AST ---\n");
     parser_t p = parser_init(tokens);
     ast_node_t* ast = parse_program(&p);
-    print_ast(ast, 0);
+    print_ast(ast, 0); // ERROR nodes print inline, wherever they occurred
 
     free(tokens);
-    return 0;
+    return p.error ? 1 : 0;
 }
