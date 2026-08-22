@@ -1,25 +1,13 @@
-fn pw -> c:
-if c==0:
-return 1
+fn wpr -> i:
+if i == -1:
+return 5
 end
-if c==1:
-return 2
+if i==6:
+return 0
 end
-if c==2:
-return 4
+return i
 end
-if c==3:
-return 8
-end
-if c==4:
-return 16
-end
-if c==5:
-return 32
-end
-return 64
-end
-fn wp -> i:
+fn wpc -> i:
 if i == -1:
 return 5
 end
@@ -47,41 +35,29 @@ end
 return r5
 end
 fn bt -> row c:
-return row / pw c - row / pw (c + 1) * 2
+return (row >> c) & 1
 end
 fn nb -> r c r0 r1 r2 r3 r4 r5:
-a0 = (bt (gr (wp (r - 1)) r0 r1 r2 r3 r4 r5) (wp (c - 1)))
-a1 = (bt (gr (wp (r - 1)) r0 r1 r2 r3 r4 r5) c)
-a2 = (bt (gr (wp (r - 1)) r0 r1 r2 r3 r4 r5) (wp (c + 1)))
-a3 = (bt (gr r r0 r1 r2 r3 r4 r5) (wp (c - 1)))
-a4 = (bt (gr r r0 r1 r2 r3 r4 r5) (wp (c + 1)))
-a5 = (bt (gr (wp (r + 1)) r0 r1 r2 r3 r4 r5) (wp (c - 1)))
-a6 = (bt (gr (wp (r + 1)) r0 r1 r2 r3 r4 r5) c)
-a7 = (bt (gr (wp (r + 1)) r0 r1 r2 r3 r4 r5) (wp (c + 1)))
+a0 = (bt (gr (wpr (r - 1)) r0 r1 r2 r3 r4 r5) (wpc (c - 1)))
+a1 = (bt (gr (wpr (r - 1)) r0 r1 r2 r3 r4 r5) c)
+a2 = (bt (gr (wpr (r - 1)) r0 r1 r2 r3 r4 r5) (wpc (c + 1)))
+a3 = (bt (gr r r0 r1 r2 r3 r4 r5) (wpc (c - 1)))
+a4 = (bt (gr r r0 r1 r2 r3 r4 r5) (wpc (c + 1)))
+a5 = (bt (gr (wpr (r + 1)) r0 r1 r2 r3 r4 r5) (wpc (c - 1)))
+a6 = (bt (gr (wpr (r + 1)) r0 r1 r2 r3 r4 r5) c)
+a7 = (bt (gr (wpr (r + 1)) r0 r1 r2 r3 r4 r5) (wpc (c + 1)))
 return a0 + a1 + a2 + a3 + a4 + a5 + a6 + a7
 end
 fn nc -> cur n:
-if cur==1:
-if n==2:
-return 1
-end
-if n==3:
-return 1
-end
-return 0
-end
-if n==3:
-return 1
-end
-return 0
+return ((cur==1) & ((n==2) | (n==3))) | ((cur==0) & (n==3))
 end
 fn cr -> ri r0 r1 r2 r3 r4 r5:
-b0 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 0) (nb ri 0 r0 r1 r2 r3 r4 r5)) * 1
-b1 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 1) (nb ri 1 r0 r1 r2 r3 r4 r5)) * 2
-b2 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 2) (nb ri 2 r0 r1 r2 r3 r4 r5)) * 4
-b3 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 3) (nb ri 3 r0 r1 r2 r3 r4 r5)) * 8
-b4 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 4) (nb ri 4 r0 r1 r2 r3 r4 r5)) * 16
-b5 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 5) (nb ri 5 r0 r1 r2 r3 r4 r5)) * 32
+b0 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 0) (nb ri 0 r0 r1 r2 r3 r4 r5)) << 0
+b1 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 1) (nb ri 1 r0 r1 r2 r3 r4 r5)) << 1
+b2 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 2) (nb ri 2 r0 r1 r2 r3 r4 r5)) << 2
+b3 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 3) (nb ri 3 r0 r1 r2 r3 r4 r5)) << 3
+b4 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 4) (nb ri 4 r0 r1 r2 r3 r4 r5)) << 4
+b5 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 5) (nb ri 5 r0 r1 r2 r3 r4 r5)) << 5
 return b0 + b1 + b2 + b3 + b4 + b5
 end
 fn rr -> v:
