@@ -3,3 +3,7 @@ build*/
 build
 *.log
 *.txt
+compile_commands.json
+repl/.clangd
+repl/build.sh
+.clang-format
