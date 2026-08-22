@@ -13,3 +13,4 @@ AI (Claude Opus 4.6) was utilised in the following ways:
 2. To add error checking and check over the tokeniser
 3. To add byte alignment and check over the memory arena
 4. To aid in development of the parser
+5. To aid in development of the interpreter
