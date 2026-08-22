@@ -10,52 +10,36 @@
  *   ( ... )         = grouping
  *)
 
-program     = { block NEWLINE } EOF ;
+program             = { statement NEWLINE } [ EP ( tsStatement | fnStatement ) NEWLINE ] EOF
 
-block       = statement NEWLINE { statement NEWLINE } END ;
+statement           = fnStatement | tsStatement | ifStatement | returnStatement | assignmentStatement
 
-statement   = fnStatement
-            | tsStatement
-            | ifStatement
-            | returnStatement
-            | assignmentStatement
-            | exprStatement
+ifStatement         = IF exprStatement COLON NEWLINE { statement NEWLINE} [ ELSE COLON NEWLINE {statement NEWLINE} ] END
 
-ifStatement = IF expr COLON NEWLINE { statement NEWLINE} (END | [ ELSE COLON NEWLINE {statement NEWLINE} END])
+tsStatement         = TS fnStatement
 
-fnStatement = FN IDENTIFIER ARROW { IDENTIFIER } COLON NEWLINE block
+fnStatement         = FN IDENTIFIER ARROW { IDENTIFIER } COLON NEWLINE block
 
-tsStatement = TC FN IDENTIFIER ARROW { IDENTIFIER } block ;
+block               = statement NEWLINE { statement NEWLINE } END
 
-lambda      = LAMBDA { IDENTIFIER } ARROW expr ;
+returnStatement     = RETURN exprStatement
 
-expr        = lambda
-            | dollar ;
+assignmentStatement = IDENTIFIER ASSIGNMENT exprStatement
 
-dollar      = comparison [ DOLLARSIGN dollar ] ;
+exprStatement       =  comparison | lambda | term
 
-comparison  = addition [ ( EQUALTO | NOTEQUALTO | GREATERTHAN | LESSTHAN ) addition ] ;
+comparison          = (lambda | term) op (lambda | term)
 
-addition    = application { ( PLUS | MINUS ) application } ;
+op                  = EQUALTO | NOTEQUALTO | GREATERTHAN | LESSTHAN
 
-application = atomic { atomic } ;
+lambda              = OPENPAREN LAMBDA IDENTIFIER { IDENTIFIER } ARROW exprStatement CLOSEPAREN [ atomic { atomic } ]
 
-atomic      = INT
-            | STR
-            | LIST
-            | IDENTIFIER
-            | OPENPAREN expr CLOSEPAREN ;
+term                = [ MINUS ] ( atomic | call ) { ( PLUS | MINUS ) ( atomic | call ) }
 
+call                = IDENTIFIER { atomic }
 
-(* --- Example program --- *)
-(*
-succ = (\x -> x + 1)
-succ (1 + 10)
+atomic              = INT | STR | IDENTIFIER | OPENPAREN exprStatement CLOSEPAREN
 
-fn name -> arg1 arg2:
-    aslkjgh
-    akjsfhd
-    aksjdfh
-    return akjsfhd
-end
-*)
+// Simple functions built into the language (parsed as IDENTIFIERS)
+
+built-ins = print
