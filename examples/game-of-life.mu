@@ -103,7 +103,7 @@ ts fn poll -> n s:
 if n == 0:
 return s
 end
-sleep 20
+sleep 5
 return poll (n - 1) (nextS s (btn 0))
 end
 
@@ -141,7 +141,7 @@ write "\e[38;5;220m   gen "
 write g
 stat p0
 print "\e[0m\e[K"
-ns = poll 20 s
+ns = poll 10 s
 p1 = (ns >> 1) & 1
 n0 = cr 0 r0 r1 r2 r3 r4 r5
 n1 = cr 1 r0 r1 r2 r3 r4 r5

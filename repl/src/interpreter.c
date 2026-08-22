@@ -214,6 +214,32 @@ int create_binding(env_t* env, char* name, int nameLen, value_t* value) {
     return MU_SUCCESS;
 }
 
+/* Drop every binding made past `count`. Bindings are appended in order, so
+ * this pairs with an arena rewind to undo a whole submission: the scope stops
+ * pointing at values the rewind is about to take back. */
+void env_truncate(env_t* env, int count) {
+    if (!env || env->count <= count) {
+        return;
+    }
+
+    if (count <= 0) {
+        env->bindings = NULL;
+        env->count = 0;
+        return;
+    }
+
+    binding_t* curr = env->bindings;
+    for (int i = 1; i < count && curr != NULL; i++) {
+        curr = curr->next;
+    }
+
+    if (curr != NULL) {
+        curr->next = NULL;
+    }
+
+    env->count = count;
+}
+
 value_t* env_lookup(env_t* env, char* name, int nameLen) {
     binding_t* binding = env->bindings;
 

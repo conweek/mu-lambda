@@ -15,7 +15,8 @@
 #define SEP_IN    "=============== input ===============\r\n"
 #define SEP_OUT   "=============== output ==============\r\n"
 #define SEP_END   "================ end ================\r\n"
-#define SHOW_CURSOR "\x1b[?25h"
+/* Put the terminal back the way it was found: default colours, cursor on */
+#define TERM_RESET "\x1b[0m\x1b[?25h"
 
 /* Buffer uses \n between lines, terminal needs \r\n */
 static void mu_print(const char* s, size_t len) {
@@ -156,9 +157,9 @@ int main(void) {
 
         value_t* result = run_interpreter(src, env);
 
-        /* A program that hid the cursor may never have got to put it back,
-         * so the prompt is never left without one. */
-        mu_write(SHOW_CURSOR, sizeof(SHOW_CURSOR) - 1);
+        /* A program that set colours or hid the cursor may have been cut off
+         * before it could undo either, so the prompt never inherits them. */
+        mu_write(TERM_RESET, sizeof(TERM_RESET) - 1);
 
         if (result) {
             if (result->valueType == VAR_INT) {
@@ -172,8 +173,12 @@ int main(void) {
             }
         }
 
-        // Nothing was defined, so none of this needs to survive
-        if (env->count == bindings_before) {
+        /* Keep a submission only if it ran to the end and defined something.
+         * An interrupt or an error rolls the whole thing back, dropping its
+         * half made definitions along with everything it allocated, so the
+         * next one starts from exactly where this one did. */
+        if (!result || env->count == bindings_before) {
+            env_truncate(env, bindings_before);
             memrina_restore_check(mu_session, cp);
         }
 
