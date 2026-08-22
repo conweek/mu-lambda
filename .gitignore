@@ -1,4 +1,6 @@
 build/
 .vscode/
 *.o
-
+.cache
+.clang-format
+compile_commands.json
