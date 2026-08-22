@@ -306,10 +306,20 @@ static void test_memdup_strndup(void) {
     assert(memcmp(d, "hello", 5) == 0);
     assert(d != src);
 
+    memset(buf, 0xAA, sizeof buf);
+    memrina_init(&a, buf, sizeof buf);
+
+    size_t before = memrina_usage(&a);
     char *s = memrina_strndup(&a, src, 5);
     assert(s != NULL);
+    assert(memrina_usage(&a) - before == 6);
     assert(strcmp(s, "hello") == 0);
     assert(s[5] == 0);
+
+    char *s2 = memrina_strndup(&a, src, 5);
+    assert(s2 != NULL);
+    assert(s2 != s);
+    assert(strcmp(s, "hello") == 0);
 
     assert(memrina_memdup(&a, NULL, 4) == NULL);
     assert(memrina_strndup(&a, NULL, 4) == NULL);
