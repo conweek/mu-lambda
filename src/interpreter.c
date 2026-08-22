@@ -36,8 +36,8 @@ value_t* evaluate(ast_node_t* node)
     switch (node->type) {
 
         case NODE_BINOP:
-           value_t left = evaluate(node->left);
-           value_t right = evaluate(node->right);
+           //value_t left = evaluate(node->left);
+           //value_t right = evaluate(node->right);
             
         case NODE_INT:
 

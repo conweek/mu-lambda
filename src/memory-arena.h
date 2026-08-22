@@ -23,6 +23,13 @@ typedef struct {
 for special cases.  */
 #define MEMRINA_DEFAULT_ALIGNMENT (sizeof(void *))
 
+
+// allocate memory and create memory arena
+Memrina* memrina_create(size_t size);
+
+// free allocated memory from arena
+void memrina_destroy(Memrina* arena);
+
 //initialise memory arena
 void memrina_init(Memrina* arena, uint8_t* buffer, size_t size);
 
