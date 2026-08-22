@@ -26,4 +26,4 @@ term                = [ MINUS ] ( atomic | call ) { ( PLUS | MINUS ) ( atomic | 
 call                = IDENTIFIER { atomic }
 atomic              = INT | STR | IDENTIFIER | OPENPAREN exprStatement CLOSEPAREN
 // Simple functions built into the language (parsed as IDENTIFIERS)
-built-ins = print
+built-ins = print, sleep, gpioSet, gpioRead

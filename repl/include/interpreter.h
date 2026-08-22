@@ -3,10 +3,10 @@
 
 #include "parser.h"
 
-#define MU_BINDING_ERR -1
-#define MU_SUCCESS 0
+#define MU_BINDING_ERR    -1
+#define MU_SUCCESS        0
 #define SCOPED_CASE(name) case name: {
-#define END_SCOPE }
+#define END_SCOPE         }
 
 typedef enum value_type {
     VAR_UNKNOWN,
@@ -19,7 +19,7 @@ typedef enum value_type {
     VAR_NATIVE_CLOSURE,
     VAR_THUNK,
     VAR_ERROR
-}value_type_t;
+} value_type_t;
 
 typedef struct value value_t;
 typedef struct binding binding_t;
@@ -44,17 +44,17 @@ typedef struct closure {
     ast_node_t* body;
     env_t* env;
     int tailcall;
-}closure_t;
+} closure_t;
 
 typedef struct thunk {
     value_t* fn;
     value_t* arg;
-}thunk_t;
+} thunk_t;
 
 typedef struct native_closure {
     native_closure_fn fn;
     void* ctx;
-}native_closure_t;
+} native_closure_t;
 
 struct value {
     value_type_t valueType;
@@ -67,7 +67,7 @@ struct value {
         thunk_t thunk;
         builtin_fn builtin;
         native_closure_t native;
-    }value;
+    } value;
 };
 
 env_t* create_env(env_t* parent);

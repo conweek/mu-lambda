@@ -1,14 +1,13 @@
-#include <stdlib.h>
 #include <stdbool.h>
 #include <zephyr/kernel.h>
 
 #include "parser.h"
 #include "tokeniser.h"
 
-void ast_free(ast_node_t* node)
-{
-    if (!node)
+void ast_free(ast_node_t* node) {
+    if (!node) {
         return;
+    }
     ast_free(node->left);
     ast_free(node->right);
     ast_free(node->cond);
@@ -214,8 +213,7 @@ ast_node_t* parse_statement(parser_t* p) {
             return left;
         }
     default:
-        printk("[!] Error: unexpected token %d, expected a statement\n",
-               parser_current(p).token);
+        printk("[!] Error: unexpected token %d, expected a statement\n", parser_current(p).token);
         p->error = true;
         return make_node(NODE_ERROR, parser_advance(p), NULL, NULL);
     }

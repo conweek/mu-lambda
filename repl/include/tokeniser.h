@@ -1,11 +1,11 @@
 #ifndef TOKENISER_H_
 #define TOKENISER_H_
 
-#define UPDATE_TOKEN(type, s, size)     \
-    do {                                \
-        token.token = type;             \
-        token.str   = s;                \
-        token.len  = size;              \
+#define UPDATE_TOKEN(type, s, size)                                                                \
+    do {                                                                                           \
+        token.token = type;                                                                        \
+        token.str = s;                                                                             \
+        token.len = size;                                                                          \
     } while (0)
 
 typedef enum atomic_token_t {
@@ -40,16 +40,16 @@ typedef enum atomic_token_t {
     TOKEN_IDENTIFIER,
     TOKEN_ENTRYPOINT,
     TOKEN_UNUSED
-}atomic_token_t;
+} atomic_token_t;
 
 typedef struct Token {
     atomic_token_t token;
     int len;
     char* str;
-}token_t;
+} token_t;
 
 token_t tokenise(char** str);
 
 token_t* get_token_list(char** str);
 
-#endif 
+#endif

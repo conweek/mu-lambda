@@ -56,9 +56,27 @@ few real quirks the docs gloss over.
 | `123` | integer literal (decimal) |
 | `identifier` | `[A-Za-z_][A-Za-z0-9_]*`, also how you call built-ins and functions |
 
-Built-ins: **only `print`** is registered (`print x` — takes exactly one int or string argument,
-prints it, evaluates to a no-result value). Anything else (`int`, `getLine`, string/list ops) does
-not exist yet — do not call it.
+### Built-ins
+
+Four are registered (`repl/src/builtins.c`); anything else (`int`, `getLine`, string/list ops) does
+not exist — do not call it. A built-in given the wrong argument type is now a hard runtime error
+(it returns an internal error value that aborts evaluation), not a silent no-op.
+
+| Call | Signature | Behavior |
+|---|---|---|
+| `print x` | 1 arg: int or string | prints it, evaluates to no-result |
+| `sleep n` | 1 arg: int | blocks for `n` milliseconds (`k_msleep`), evaluates to no-result |
+| `gpioSet dev pin val` | 3 args, curried: string, int, int | configures `pin` on device `dev` as `OUTPUT \| PULL_UP` and sets it to `val` (0/1); evaluates to no-result |
+| `gpioRead dev pin` | 2 args, curried: string, int | configures `pin` on device `dev` as `INPUT` and returns its level as an int |
+
+`gpioSet`/`gpioRead` are curried the same way user-defined functions are — `gpioSet dev` alone
+returns a partially-applied value waiting on `pin`, etc. `dev` is looked up with
+`device_get_binding`, so it must match a GPIO device's `label` in the *target board's*
+devicetree — this is board-specific and there is no such labeled GPIO node in the `native_sim`
+board used for `repl/build.sh`, so a program calling `gpioSet`/`gpioRead` won't find a ready device
+there; it needs a real board (or a `native_sim` overlay adding a labeled `gpio-emul` node) to
+actually exercise. `gpioSet` always configures the pin `OUTPUT | PULL_UP` (no way to request a
+plain output yet — a known TODO in the source).
 
 ## Grammar (as actually implemented by repl/src/parser.c)
 
@@ -169,11 +187,25 @@ ep fn main -> :
 end
 ```
 
+Blinking a GPIO pin forever, using the `ep`-returns-itself loop plus `sleep` (board-specific: swap
+`"GPIO_0"` for a device label that's actually in the target board's devicetree):
+
+```
+ep fn main -> :
+    gpioSet "GPIO_0" 13 1
+    sleep 500
+    gpioSet "GPIO_0" 13 0
+    sleep 500
+    return main
+end
+```
+
 ## Writing a new program — checklist
 
 1. Every `fn`/`ts fn` block ends with `end`; every `if`/`else` shares one `end`.
 2. Exactly one `ep fn <name> -> :` (or `ep ts fn`), no params, placed last.
-3. No `[...]` list literals, no unregistered built-ins (only `print` exists).
+3. No `[...]` list literals, no unregistered built-ins (only `print`, `sleep`, `gpioSet`,
+   `gpioRead` exist).
 4. Negative literal arguments and bare lambdas are parenthesized (see Gotchas).
 5. No name is assigned twice across nested scopes (function params excepted).
 6. Comparisons are not chained.
