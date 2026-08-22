@@ -580,10 +580,12 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
 
             while (curr != NULL) {
                 if (curr->type != NODE_BLOCK) {
+                    value_release(result);
                     result = evaluate_tc(curr, env, in_tailcall);
                     break;
                 }
 
+                value_release(result);
                 result = evaluate_tc(curr->left, env, in_tailcall);
 
                 if (result && result->is_return)
