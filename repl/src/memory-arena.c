@@ -1,7 +1,7 @@
-#include "memory-arena.h"
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "memory-arena.h"
 
 // Round n up to the next multiple of align. align must be a power of two
 static uintptr_t align_up(uintptr_t n, size_t align) {
