@@ -203,7 +203,7 @@ ast_node_t* parse_statement(parser_t* p) {
 }
 
 // ifStatement = IF exprStatement COLON NEWLINE { statement NEWLINE } [ ELSE COLON NEWLINE {
-// statement NEWLINE } ] END Parses if/else statements
+// statement NEWLINE } ] END
 ast_node_t* parse_if(parser_t* p) {
     token_t tok = parser_match(p, TOKEN_IF);
     ast_node_t* cond = parse_expr_statement(p);
@@ -262,11 +262,9 @@ ast_node_t* parse_if(parser_t* p) {
     return node;
 }
 
-// fnStatement = FN IDENTIFIER ARROW { IDENTIFIER } COLON NEWLINE block
 // tsStatement = TS fnStatement
-// Parses both regular and tail recursive functions
+// fnStatement = FN IDENTIFIER ARROW { IDENTIFIER } COLON NEWLINE block
 ast_node_t* parse_fn(parser_t* p, int tailcall) {
-    token_t tok;
     if (tailcall) {
         parser_match(p, TOKEN_TAILCALL);
     }
@@ -279,9 +277,8 @@ ast_node_t* parse_fn(parser_t* p, int tailcall) {
     ast_node_t* params = NULL;
     ast_node_t* ptail = NULL;
 
-    while (parser_current(p).token == TOKEN_IDENTIFIER) {
-        tok = parser_advance(p);
-        ast_node_t* pnode = make_node(NODE_VAR, tok, NULL, NULL);
+    while (parser_is_match(p, TOKEN_IDENTIFIER)) {
+        ast_node_t* pnode = make_node(NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
         if (!params) {
             params = pnode;
             ptail = pnode;
@@ -293,26 +290,20 @@ ast_node_t* parse_fn(parser_t* p, int tailcall) {
 
     parser_match(p, TOKEN_COLON);
     parser_skip_newline(p);
-
-    ast_node_t* body = parse_block(p);
-    node_type_t type = tailcall ? NODE_TAILCALL : NODE_FN;
-    ast_node_t* node = make_node(type, name, params, body);
+    ast_node_t* node = make_node(tailcall ? NODE_TAILCALL : NODE_FN, name, params, parse_block(p));
     return node;
 }
 
 // lambda = OPENPAREN LAMBDA IDENTIFIER { IDENTIFIER } ARROW exprStatement CLOSEPAREN [ atomic {
-// atomic } ] Parses a lambda literal, plus any arguments it is immediately applied to
+// atomic } ]
 ast_node_t* parse_lambda(parser_t* p) {
     parser_match(p, TOKEN_OPENPAREN);
     token_t tok = parser_match(p, TOKEN_LAMBDA);
-
-    token_t first = parser_match(p, TOKEN_IDENTIFIER);
-    ast_node_t* params = make_node(NODE_VAR, first, NULL, NULL);
+    ast_node_t* params = make_node(NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
     ast_node_t* ptail = params;
 
-    while (parser_current(p).token == TOKEN_IDENTIFIER) {
-        token_t param = parser_advance(p);
-        ast_node_t* pnode = make_node(NODE_VAR, param, NULL, NULL);
+    while (parser_is_match(p, TOKEN_IDENTIFIER)) {
+        ast_node_t* pnode = make_node(NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
         ptail->right = pnode;
         ptail = pnode;
     }
