@@ -40,3 +40,6 @@ call                = IDENTIFIER { atomic }
 
 atomic              = INT | STR | IDENTIFIER | OPENPAREN exprStatement CLOSEPAREN
 
+// Simple functions built into the language (parsed as IDENTIFIERS)
+
+built-ins = print
