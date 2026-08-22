@@ -1,9 +1,7 @@
 #include <stdbool.h>
-#include <stdlib.h>
 #include <zephyr/kernel.h>
 
 #include "mu_arena.h"
-
 #include "parser.h"
 #include "tokeniser.h"
 
@@ -92,7 +90,14 @@ static int is_atomic_start(atomic_token_t t) {
 // Returns whether a comparison operator token follows
 static int is_op(atomic_token_t t) {
     return (t == TOKEN_EQUALTO || t == TOKEN_NOTEQUALTO || t == TOKEN_GREATERTHAN ||
-            t == TOKEN_LESSTHAN);
+            t == TOKEN_LESSTHAN || t == TOKEN_GREATERTHANEQUAL || t == TOKEN_LESSTHANEQUAL);
+}
+
+// bitop = LSHIFT | RSHIFT | XOR | OR | AND
+// Returns is its a bitop
+static int is_bit_op(atomic_token_t t) {
+    return (t == TOKEN_LSHIFT || t == TOKEN_RSHIFT || t == TOKEN_XOR || t == TOKEN_OR ||
+            t == TOKEN_AND);
 }
 
 // Returns whether the parser is positioned at a lambda literal: "(" "\"
@@ -372,7 +377,7 @@ ast_node_t* parse_comparison(parser_t* p) {
 // term = [ MINUS ] factor { ( PLUS | MINUS ) factor }
 ast_node_t* parse_term(parser_t* p) {
     token_t neg_tok;
-    bool neg = 0;
+    bool neg = false;
     if (parser_is_match(p, TOKEN_MINUS)) {
         neg_tok = parser_match(p, TOKEN_MINUS);
         neg = true;
@@ -392,8 +397,26 @@ ast_node_t* parse_term(parser_t* p) {
     return left;
 }
 
-// factor = (call | atomic) { (TIMES | DIVIDE) (call | atomic) }
+// factor = bitwise { (TIMES | DIVIDE) bitwise }
 ast_node_t* parse_factor(parser_t* p) {
+    ast_node_t* left = parse_bitwise(p);
+    while (parser_is_match(p, TOKEN_TIMES) || parser_is_match(p, TOKEN_DIVIDE)) {
+        token_t op = parser_advance(p); // grab * or /
+        ast_node_t* right = parse_bitwise(p);
+        left = make_node(p, NODE_BINOP, op, left, right);
+    }
+
+    return left;
+}
+
+// bitwise = [ COMPLIMENT ] (call | atomic) { bitop (call | atomic) }
+ast_node_t* parse_bitwise(parser_t* p) {
+    token_t comp_tok;
+    bool comp = false;
+    if (parser_is_match(p, TOKEN_COMPLIMENT)) {
+        comp_tok = parser_match(p, TOKEN_COMPLIMENT);
+        comp = true;
+    }
 
     ast_node_t* left;
     if (parser_is_match(p, TOKEN_IDENTIFIER)) {
@@ -402,8 +425,12 @@ ast_node_t* parse_factor(parser_t* p) {
         left = parse_atomic(p);
     }
 
-    while (parser_is_match(p, TOKEN_TIMES) || parser_is_match(p, TOKEN_DIVIDE)) {
-        token_t op = parser_advance(p); // grab * or /
+    if (comp) {
+        left = make_node(p, NODE_COMP, comp_tok, left, NULL);
+    }
+
+    while (is_bit_op(parser_current(p).token)) {
+        token_t op = parser_advance(p); // grab the bitwise op
         ast_node_t* right;
         if (parser_is_match(p, TOKEN_IDENTIFIER)) {
             right = parse_call(p);

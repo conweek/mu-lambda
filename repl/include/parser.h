@@ -11,6 +11,7 @@ typedef enum node_type_t {
     NODE_VAR,
     NODE_BINOP,
     NODE_NEG,
+    NODE_COMP,
     NODE_ASSIGN,
     NODE_IF,
     NODE_FN,
@@ -57,6 +58,7 @@ ast_node_t* parse_expr_statement(parser_t* p);
 ast_node_t* parse_comparison(parser_t* p);
 ast_node_t* parse_term(parser_t* p);
 ast_node_t* parse_factor(parser_t* p);
+ast_node_t* parse_bitwise(parser_t* p);
 ast_node_t* parse_call(parser_t* p);
 ast_node_t* parse_atomic(parser_t* p);
 

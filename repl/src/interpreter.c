@@ -285,6 +285,16 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         value_release(right);
 
         switch (node->token.token) {
+        case TOKEN_XOR:
+            return make_int(l ^ r);
+        case TOKEN_OR:
+            return make_int(l | r);
+        case TOKEN_AND:
+            return make_int(l & r);
+        case TOKEN_LSHIFT:
+            return make_int(l << r);
+        case TOKEN_RSHIFT:
+            return make_int(l >> r);
         case TOKEN_PLUS:
             return make_int(l + r);
         case TOKEN_MINUS:
@@ -295,8 +305,12 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
             return make_int(l != r);
         case TOKEN_GREATERTHAN:
             return make_int(l > r);
+        case TOKEN_GREATERTHANEQUAL:
+            return make_int(l >= r);
         case TOKEN_LESSTHAN:
             return make_int(l < r);
+        case TOKEN_LESSTHANEQUAL:
+            return make_int(l <= r);
         case TOKEN_TIMES:
             return make_int(l * r);
         case TOKEN_DIVIDE:
@@ -308,6 +322,23 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         default:
             return NULL;
         }
+        END_SCOPE
+
+        SCOPED_CASE(NODE_COMP)
+        value_t* left = evaluate_tc(node->left, env, 0);
+
+        if (!left) {
+            return NULL;
+        }
+
+        if (left->valueType != VAR_INT) {
+            printk("[!] Error: compliment requires integer operand\n");
+            value_release(left);
+            return NULL;
+        }
+
+        left->value.integer = ~(left->value.integer);
+        return left;
         END_SCOPE
 
         SCOPED_CASE(NODE_NEG)
