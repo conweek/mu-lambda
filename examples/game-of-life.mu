@@ -83,7 +83,7 @@ end
 
 // swap this for `return 0` to run with no button
 fn btn -> x:
-return gpioRead "gpioc" 13
+return gpioRead "gpio0" 13
 end
 
 // paused in bit 1, last button level in bit 0. Only a fresh press flips.

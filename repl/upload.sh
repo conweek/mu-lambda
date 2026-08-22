@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-# pipe all contents of a specified file to specified port in batch mode and print output to stdout
+# pipe all contents of a specified file to specified port in batch mode and
+# stream the reply to stdout as it arrives
 
 set -u
 
@@ -35,11 +36,16 @@ if ! stty -F "$PORT" "$BAUD" raw -echo clocal -hupcl 2>/dev/null; then
 	exit 1
 fi
 
-# give some time for everything to print out
-SIZE=$(wc -c < "$FILE")
-WAIT=$(( SIZE / 2000 + 4 ))
-
 exec 3<>"$PORT"
+
+# ctrl c has to stop the program on the board, not just this script, otherwise
+# an ep loop keeps running and the next upload lands on top of it
+cleanup() {
+	printf '\x03' >&3 2>/dev/null || true
+	exec 3<&- 2>/dev/null || true
+}
+trap cleanup EXIT
+trap 'exit 130' INT
 
 timeout 1 cat <&3 >/dev/null 2>&1    # let the port settle, early writes get lost
 
@@ -48,15 +54,33 @@ printf '\x05' >&3                    # start batch mode
 cat "$FILE" >&3
 printf '\x04' >&3                    # end batch mode
 
-# only show input and output sections unless headers not detected in output
-RAW=$(timeout "$WAIT" cat <&3 | tr -d '\r') 
-OUT=$(printf '%s\n' "$RAW" | sed -n '/^=* input =*$/,/^=* end =*$/p')
+# print from the input header onward and stop at the end header. a program that
+# returns itself never prints one, so ctrl c is how you leave it.
+#
+# awk reads the port itself instead of sitting behind cat. cat would block in a
+# read and only notice awk had gone the next time it wrote, so the script hung
+# on after the end header. awk also strips the carriage returns, where piping
+# through tr block buffers and hands over nothing until it is killed.
+#
+# the markers can carry the terminal reset the repl emits before them, and that
+# has no newline of its own, so match on a copy with the escapes stripped and
+# print the untouched line so program colours survive
+filter='
+{
+	line = $0
+	sub(/\r$/, "", line)
+	probe = line
+	gsub(/\033\[[0-9;?]*[a-zA-Z]/, "", probe)
+}
+probe ~ /^=+ input =+$/ { seen = 1 }
+seen                    { print line; fflush() }
+probe ~ /^=+ end =+$/   { exit }
+'
 
-if [ -n "$OUT" ]; then
-	printf '%s\n' "$OUT"
+# unbounded by default so a running program can be watched, set UPLOAD_TIMEOUT
+# to put a ceiling on it for scripted use
+if [ -n "${UPLOAD_TIMEOUT:-}" ]; then
+	timeout "$UPLOAD_TIMEOUT" awk "$filter" <&3
 else
-	echo "$0: no headers in reply, dumping raw transcript" >&2
-	printf '%s\n' "$RAW"
+	awk "$filter" <&3
 fi
-
-exec 3<&-
