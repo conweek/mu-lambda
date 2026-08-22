@@ -59,8 +59,6 @@ int main(void) {
     register_builtin(env, "sleep", builtin_sleep);
     register_builtin(env, "gpioSet", builtin_gpio_set);
     register_builtin(env, "gpioRead", builtin_gpio_read);
-    register_builtin(env, "i2cWrite", builtin_i2c_write);
-    register_builtin(env, "i2cRead", builtin_i2c_read);
     register_builtin(env, "i2cRegWrite", builtin_i2c_reg_write);
     register_builtin(env, "i2cRegRead", builtin_i2c_reg_read);
 
