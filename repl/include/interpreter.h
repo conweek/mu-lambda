@@ -72,6 +72,9 @@ struct value {
 
 env_t* create_env(env_t* parent);
 int create_binding(env_t* env, char* name, int nameLen, value_t* value);
+void mu_halt(void);
+void mu_request_reset(void);
+bool mu_reset_requested(void);
 void env_truncate(env_t* env, int count);
 value_t* env_lookup(env_t* env, char* name, int nameLen);
 value_t* evaluate(ast_node_t* node, env_t* env);

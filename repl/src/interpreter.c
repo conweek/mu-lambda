@@ -19,6 +19,29 @@ static bool oom_reported;
  * as it is read. */
 static bool interrupted;
 
+/* A program that asks to stop, via the halt builtin. Unwinds exactly like an
+ * interrupt so the caller rolls the whole submission back, which is what a
+ * game over wants: say its piece, then leave nothing behind. */
+static bool halted;
+
+void mu_halt(void) {
+    halted = true;
+}
+
+/* Wiping the arena mid evaluation would take the running program's own AST
+ * and scope with it, so the builtin only raises a flag and stops. The caller
+ * does the clearing once evaluation has unwound. */
+static bool reset_requested;
+
+void mu_request_reset(void) {
+    reset_requested = true;
+    halted = true;
+}
+
+bool mu_reset_requested(void) {
+    return reset_requested;
+}
+
 static bool check_interrupt(void) {
     if (interrupted) {
         return true;
@@ -452,6 +475,8 @@ value_t* run_interpreter(char* source, env_t* env) {
 
     oom_reported = false;
     interrupted = false;
+    halted = false;
+    reset_requested = false;
 
     token_t* tokens = get_token_list(&ptr);
     if (!tokens) {
@@ -472,8 +497,8 @@ value_t* run_interpreter(char* source, env_t* env) {
     ast_free(ast);
 
     if (!result) {
-        // An interrupt already said its piece
-        if (!interrupted) {
+        // An interrupt or a deliberate halt already said its piece
+        if (!interrupted && !halted) {
             printk("[!] Error: evaluation failed\n");
         }
 
@@ -495,7 +520,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
     /* Once the arena is gone nothing further can be built, unwind instead of
      * failing one allocation at a time all the way down the program. A ctrl c
      * unwinds the same way. */
-    if (oom_reported || check_interrupt()) {
+    if (oom_reported || halted || check_interrupt()) {
         return NULL;
     }
 

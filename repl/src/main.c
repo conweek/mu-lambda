@@ -17,6 +17,7 @@
 #define SEP_END   "================ end ================\r\n"
 /* Put the terminal back the way it was found: default colours, cursor on */
 #define TERM_RESET "\x1b[0m\x1b[?25h"
+#define RESET_MSG "session cleared\r\n"
 
 /* Buffer uses \n between lines, terminal needs \r\n */
 static void mu_print(const char* s, size_t len) {
@@ -43,6 +44,26 @@ static bool opens_block(const char* s, size_t len) {
     return len > 0 && s[len - 1] == ':';
 }
 
+static env_t* fresh_env(void) {
+    env_t* env = create_env(NULL);
+
+    if (!env) {
+        return NULL;
+    }
+
+    register_builtin(env, "print", builtin_print);
+    register_builtin(env, "write", builtin_write);
+    register_builtin(env, "halt", builtin_halt);
+    register_builtin(env, "reset", builtin_reset);
+    register_builtin(env, "sleep", builtin_sleep);
+    register_builtin(env, "gpioSet", builtin_gpio_set);
+    register_builtin(env, "gpioRead", builtin_gpio_read);
+    register_builtin(env, "i2cRegWrite", builtin_i2c_reg_write);
+    register_builtin(env, "i2cRegRead", builtin_i2c_reg_read);
+
+    return env;
+}
+
 int main(void) {
     static char line[LINE_MAX];
     static char stmt[STMT_MAX];
@@ -53,17 +74,10 @@ int main(void) {
 
     mu_arena_init();
 
-    env_t* env = create_env(NULL);
+    env_t* env = fresh_env();
     if (!env) {
         return -1;
     }
-    register_builtin(env, "print", builtin_print);
-    register_builtin(env, "write", builtin_write);
-    register_builtin(env, "sleep", builtin_sleep);
-    register_builtin(env, "gpioSet", builtin_gpio_set);
-    register_builtin(env, "gpioRead", builtin_gpio_read);
-    register_builtin(env, "i2cRegWrite", builtin_i2c_reg_write);
-    register_builtin(env, "i2cRegRead", builtin_i2c_reg_read);
 
     mu_write(BANNER, sizeof(BANNER) - 1);
 
@@ -177,7 +191,17 @@ int main(void) {
          * An interrupt or an error rolls the whole thing back, dropping its
          * half made definitions along with everything it allocated, so the
          * next one starts from exactly where this one did. */
-        if (!result || env->count == bindings_before) {
+        if (mu_reset_requested()) {
+            // Safe now that evaluation has unwound and nothing points into it
+            memrina_clear(mu_session);
+            env = fresh_env();
+
+            if (!env) {
+                return -1;
+            }
+
+            mu_write(RESET_MSG, sizeof(RESET_MSG) - 1);
+        } else if (!result || env->count == bindings_before) {
             env_truncate(env, bindings_before);
             memrina_restore_check(mu_session, cp);
         }

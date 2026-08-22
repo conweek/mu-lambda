@@ -76,6 +76,25 @@ value_t* builtin_write(value_t* arg) {
     return make_no_result();
 }
 
+/* Stop the program where it stands. Takes an argument it ignores, since a
+ * function with no parameters cannot be called. */
+value_t* builtin_halt(value_t* arg) {
+    (void)arg;
+
+    mu_halt();
+
+    return make_error();
+}
+
+/* Throw away every definition and hand the whole arena back */
+value_t* builtin_reset(value_t* arg) {
+    (void)arg;
+
+    mu_request_reset();
+
+    return make_error();
+}
+
 value_t* builtin_sleep(value_t* arg) {
     if (!arg || arg->valueType != VAR_INT) {
         BUILTIN_ERR("sleep");
