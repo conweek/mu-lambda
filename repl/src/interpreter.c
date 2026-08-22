@@ -7,11 +7,30 @@
 #include "interpreter.h"
 #include "builtins.h"
 #include "mu_arena.h"
+#include "mu_console.h"
 
 /* The arena has no individual free, so a long running program can fill it. The
  * makers below all fail by returning NULL, which unwinds silently, so say it
  * once per submission rather than leaving the program to stop mid output. */
 static bool oom_reported;
+
+/* Nothing checked ctrl c while a program ran, so an endless loop could only be
+ * escaped by resetting the board. Latched because the console clears the flag
+ * as it is read. */
+static bool interrupted;
+
+static bool check_interrupt(void) {
+    if (interrupted) {
+        return true;
+    }
+
+    if (mu_interrupted()) {
+        printk("[!] Interrupted\n");
+        interrupted = true;
+    }
+
+    return interrupted;
+}
 
 static void* session_alloc(size_t nbytes) {
     void* ptr = memrina_alloc(mu_session, nbytes);
@@ -406,6 +425,7 @@ value_t* run_interpreter(char* source, env_t* env) {
     char* ptr = source;
 
     oom_reported = false;
+    interrupted = false;
 
     token_t* tokens = get_token_list(&ptr);
     if (!tokens) {
@@ -426,7 +446,11 @@ value_t* run_interpreter(char* source, env_t* env) {
     ast_free(ast);
 
     if (!result) {
-        printk("[!] Error: evaluation failed\n");
+        // An interrupt already said its piece
+        if (!interrupted) {
+            printk("[!] Error: evaluation failed\n");
+        }
+
         return NULL;
     }
 
@@ -442,9 +466,10 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         return NULL;
     }
 
-    // Once the arena is gone nothing further can be built, unwind instead of
-    // failing one allocation at a time all the way down the program
-    if (oom_reported) {
+    /* Once the arena is gone nothing further can be built, unwind instead of
+     * failing one allocation at a time all the way down the program. A ctrl c
+     * unwinds the same way. */
+    if (oom_reported || check_interrupt()) {
         return NULL;
     }
 

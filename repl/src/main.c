@@ -15,6 +15,7 @@
 #define SEP_IN    "=============== input ===============\r\n"
 #define SEP_OUT   "=============== output ==============\r\n"
 #define SEP_END   "================ end ================\r\n"
+#define SHOW_CURSOR "\x1b[?25h"
 
 /* Buffer uses \n between lines, terminal needs \r\n */
 static void mu_print(const char* s, size_t len) {
@@ -154,6 +155,11 @@ int main(void) {
         }
 
         value_t* result = run_interpreter(src, env);
+
+        /* A program that hid the cursor may never have got to put it back,
+         * so the prompt is never left without one. */
+        mu_write(SHOW_CURSOR, sizeof(SHOW_CURSOR) - 1);
+
         if (result) {
             if (result->valueType == VAR_INT) {
                 char buf[16];

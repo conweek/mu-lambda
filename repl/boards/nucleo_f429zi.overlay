@@ -2,3 +2,9 @@
     label = "i2c1";
     status = "okay";
 };
+
+/* The user button B1 sits on PC13, gpioRead finds the port by this label */
+&gpioc {
+    label = "gpioc";
+    status = "okay";
+};
