@@ -1,10 +1,6 @@
-// MMA8452 sanity check, i2c1 at 0x1D (29).
-// WHO_AM_I (0x0D) must read 42. Anything else means wrong address,
-// wrong device, or a bus that is not talking.
-// The registers come back unsigned but the sensor means them as signed
-// bytes, so a small negative tilt reads 255, not -1, until converted.
-// Flat on a desk expect X and Y near 0 and Z near 64, since 1g is about
-// 64 counts at the default +-2g range.
+// MMA8452 sanity check, i2c1 at 0x1D (29). WHO_AM_I must read 42.
+// Registers come back unsigned but mean signed, so a small negative tilt
+// reads 255 until converted. Flat on a desk: X,Y near 0 and Z near 64.
 fn sgn -> v:
 if v > 127:
 return v - 256

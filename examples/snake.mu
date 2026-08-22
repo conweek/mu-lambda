@@ -1,7 +1,6 @@
 // Snake on a 6x6 wrapping grid. Tilt an MMA8452 on i2c1 to steer.
-// No lists in the language, so each cell holds a countdown: the head is
-// stamped with the length and every cell ticks down one per frame, so the
-// tail clears itself. Six 4 bit cells per row int, max length 15.
+// The head is stamped with the length and each cell counts down per frame,
+// so the tail clears itself. Not a hunger timer, only self collision kills.
 fn wp -> i:
 if i == -1:
 return 5
@@ -80,11 +79,9 @@ cellc row 4 ax ay y
 cellc row 5 ax ay y
 print "\e[0m\e[K"
 end
-// 16 bit LCG, the multiply stays under 2^31
 fn lcg -> s:
 return ((s * 25173) + 13849) & 65535
 end
-// packed as seed<<6 | y<<3 | x
 ts fn pick -> n sd g0 g1 g2 g3 g4 g5:
 s1 = lcg sd
 x = s1 & 7
@@ -100,21 +97,21 @@ return pick (n - 1) s1 g0 g1 g2 g3 g4 g5
 end
 return (s1 << 6) | (y << 3) | x
 end
-// registers read back unsigned, the sensor means them as signed bytes
+// registers read unsigned, the sensor means them signed
 fn sgn -> v:
 if v > 127:
 return v - 256
 end
 return v
 end
-// 0x1D, OUT_X_MSB=1 OUT_Y_MSB=3. Swap both for `return 0` if no sensor.
+// swap both bodies for `return 0` to run with no sensor
 fn rx -> u:
 return sgn (i2cRegRead "i2c1" 29 1)
 end
 fn ry -> u:
 return sgn (i2cRegRead "i2c1" 29 3)
 end
-// 0 right, 1 down, 2 left, 3 up. Turning back on yourself is ignored.
+// 0 right 1 down 2 left 3 up, no turning back on yourself
 fn ndir -> d:
 x = rx 0
 y = ry 0
@@ -169,7 +166,6 @@ return pick 40 sd g0 g1 g2 g3 g4 g5
 end
 return (sd << 6) | ap
 end
-// halt unwinds like ctrl c, nothing is left behind
 fn over -> ln:
 print "\e[K"
 write "\e[1;38;5;196m   GAME OVER   length "

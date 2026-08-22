@@ -1,6 +1,5 @@
 // Conway's Game of Life on a 6x6 torus, one bitmask per row.
-// Built for the nucleo_f429zi, the B1 user button pauses and resumes.
-// Needs a terminal that understands ANSI escapes.
+// B1 on the nucleo pauses and resumes. Needs an ANSI terminal.
 
 fn wpr -> i:
 if i == -1:
@@ -64,7 +63,6 @@ b4 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 4) (nb ri 4 r0 r1 r2 r3 r4 r5)) << 4
 b5 = (nc (bt (gr ri r0 r1 r2 r3 r4 r5) 5) (nb ri 5 r0 r1 r2 r3 r4 r5)) << 5
 return b0 + b1 + b2 + b3 + b4 + b5
 end
-// A live cell is green, a dead one is dark grey
 fn cell -> row c:
 if bt row c:
 write "\e[38;5;46m#"
@@ -83,14 +81,12 @@ cell row 5
 print "\e[0m\e[K"
 end
 
-// B1 on PC13 reads high while held. Swap this for `return 0` to run
-// the animation on a board with no button.
+// swap this for `return 0` to run with no button
 fn btn -> x:
 return gpioRead "gpioc" 13
 end
 
-// One int carries both flags: paused in bit 1, last button level in bit 0.
-// Only a fresh press, low then high, flips paused.
+// paused in bit 1, last button level in bit 0. Only a fresh press flips.
 fn nextS -> s b:
 p = (s >> 1) & 1
 prev = s & 1
@@ -98,7 +94,7 @@ np = p ^ ((b == 1) & (prev == 0))
 return (np << 1) | b
 end
 
-// Spend the frame in short naps so a quick press is never missed
+// short naps so a quick press is never missed
 ts fn poll -> n s:
 if n == 0:
 return s
@@ -107,7 +103,6 @@ sleep 5
 return poll (n - 1) (nextS s (btn 0))
 end
 
-// While paused the board holds still and the counter stops
 fn nx -> p cur nxt:
 if p:
 return cur
