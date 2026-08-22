@@ -29,6 +29,10 @@ token_t tokenise(char** str)
             UPDATE_TOKEN(TOKEN_PLUS, *str, 1);
             (*str)++;
             return token;
+        case '*':
+            UPDATE_TOKEN(TOKEN_TIMES, *str, 1);
+            (*str)++;
+            return token;
         case '-':
             if (*(*str + 1) == '>') {
                 UPDATE_TOKEN(TOKEN_ARROW, *str, 2);
@@ -70,16 +74,22 @@ token_t tokenise(char** str)
             break;
     }
 
-    // Handle comments
-    if (**str == '/' && *(*str + 1) == '/') {
-        token.token = TOKEN_COMMENT;
-        token.str = *str;
-        (*str) += 2;
-        while (**str != '\0' && **str != '\n') {
-            token.len++;
-            (*str)++;
+    // Handle comments and division
+    if (**str == '/') {
+        if (*(*str + 1) == '/') {
+            token.token = TOKEN_COMMENT;
+            token.str = *str;
+            (*str) += 2;
+            while (**str != '\0' && **str != '\n') {
+                token.len++;
+                (*str)++;
+            }
+            token.len += 2;
+            return token;
         }
-        token.len += 2;
+
+        UPDATE_TOKEN(TOKEN_DIVIDE, *str, 1);
+        (*str)++;
         return token;
     }
 

@@ -182,7 +182,8 @@ ast_node_t* parse_statement(parser_t* p) {
     case TOKEN_TAILCALL:
         return parse_fn(p, 1);
     case TOKEN_RETURN:
-        return make_node(NODE_RETURN, parser_match(p, TOKEN_RETURN), parse_expr_statement(p), NULL);
+        tok = parser_match(p, TOKEN_RETURN);
+        return make_node(NODE_RETURN, tok, parse_expr_statement(p), NULL);
     case TOKEN_IDENTIFIER:
         tok = parser_match(p, TOKEN_IDENTIFIER); // grab the left hand side
         if (parser_is_match(p, TOKEN_ASSIGNMENT)) {
@@ -194,7 +195,7 @@ ast_node_t* parse_statement(parser_t* p) {
             fprintf(stderr, "parse error: unexpected token %d, expected a statement\n", tok.token);
             exit(1);
         }
-        break;
+        break; // unreachable
     default:
         // TODO: Change to printk/LOGERR for Zephyr
         fprintf(stderr, "parse error: unexpected token %d, expected a statement\n", tok.token);
@@ -322,16 +323,13 @@ ast_node_t* parse_lambda(parser_t* p) {
     return node;
 }
 
-// exprStatement = comparison | lambda | term
+// exprStatement = comparison
 // Parses an expression statement
 ast_node_t* parse_expr_statement(parser_t* p) {
     return parse_comparison(p);
 }
 
-// comparison = (lambda | term) op (lambda | term)
-// comparison's left-hand side is a (lambda | term), which is exactly
-// exprStatement's lambda/term fallthrough when no operator follows, so both
-// rules are implemented together here.
+// comparison = (lambda | term) [op (lambda | term)]
 ast_node_t* parse_comparison(parser_t* p) {
     ast_node_t* left = is_lambda_start(p) ? parse_lambda(p) : parse_term(p);
     token_t tok = parser_current(p);
@@ -345,30 +343,52 @@ ast_node_t* parse_comparison(parser_t* p) {
     return left;
 }
 
-// term = [ MINUS ] ( call | atomic ) { ( PLUS | MINUS ) ( call | atomic ) }
+// term = [ MINUS ] factor { ( PLUS | MINUS ) factor }
+ast_node_t* parse_term(parser_t* p) {
+    token_t neg_tok;
+    bool neg = 0;
+    if (parser_is_match(p, TOKEN_MINUS)) {
+        neg_tok = parser_match(p, TOKEN_MINUS);
+        neg = true;
+    }
+
+    ast_node_t* left = parse_factor(p);
+
+    if (neg) {
+        left = make_node(NODE_NEG, neg_tok, left, NULL);
+    }
+
+    while (parser_is_match(p, TOKEN_PLUS) || parser_is_match(p, TOKEN_MINUS)) {
+        token_t op = parser_advance(p); // get plus or minus
+        left = make_node(NODE_BINOP, op, left, parse_factor(p));
+    }
+
+    return left;
+}
+
+// factor = (call | atomic) { (TIMES | DIVIDE) (call | atomic) }
 // call always takes priority over atomic's IDENTIFIER form when the
 // lookahead is IDENTIFIER: call = IDENTIFIER { atomic } already covers the
 // zero-argument (bare variable) case, so atomic's IDENTIFIER form is never
 // tried separately here.
-ast_node_t* parse_term(parser_t* p) {
-    int negate = (parser_current(p).token == TOKEN_MINUS);
-    token_t neg_tok;
+ast_node_t* parse_factor(parser_t* p) {
 
-    if (negate) {
-        neg_tok = parser_advance(p);
+    ast_node_t* left;
+    if (parser_is_match(p, TOKEN_IDENTIFIER)) {
+        left = parse_call(p);
+    } else {
+        left = parse_atomic(p);
     }
 
-    ast_node_t* left =
-        (parser_current(p).token == TOKEN_IDENTIFIER) ? parse_call(p) : parse_atomic(p);
+    while (parser_is_match(p, TOKEN_TIMES) || parser_is_match(p, TOKEN_DIVIDE)) {
+        token_t op = parser_advance(p); // grab * or /
+        ast_node_t* right;
+        if (parser_is_match(p, TOKEN_IDENTIFIER)) {
+            right = parse_call(p);
+        } else {
+            right = parse_atomic(p);
+        }
 
-    if (negate) {
-        left = make_node(NODE_NEG, neg_tok, left, NULL);
-    }
-
-    while (parser_current(p).token == TOKEN_PLUS || parser_current(p).token == TOKEN_MINUS) {
-        token_t op = parser_advance(p);
-        ast_node_t* right =
-            (parser_current(p).token == TOKEN_IDENTIFIER) ? parse_call(p) : parse_atomic(p);
         left = make_node(NODE_BINOP, op, left, right);
     }
 
@@ -393,27 +413,24 @@ ast_node_t* parse_call(parser_t* p) {
 // atomic = INT | STR | IDENTIFIER | OPENPAREN exprStatement CLOSEPAREN
 // Parses an atomic token
 ast_node_t* parse_atomic(parser_t* p) {
-    token_t tok = parser_current(p);
+    ast_node_t* node;
 
-    switch (tok.token) {
+    switch (parser_current(p).token) {
     case TOKEN_INT:
-        parser_advance(p);
-        return make_node(NODE_INT, tok, NULL, NULL);
+        return make_node(NODE_INT, parser_match(p, TOKEN_INT), NULL, NULL);
     case TOKEN_STR:
-        parser_advance(p);
-        return make_node(NODE_STR, tok, NULL, NULL);
+        return make_node(NODE_STR, parser_match(p, TOKEN_STR), NULL, NULL);
     case TOKEN_IDENTIFIER:
-        parser_advance(p);
-        return make_node(NODE_VAR, tok, NULL, NULL);
-    case TOKEN_OPENPAREN: {
-        parser_advance(p);
-        ast_node_t* inner = parse_expr_statement(p);
+        return make_node(NODE_VAR, parser_match(p, TOKEN_IDENTIFIER), NULL, NULL);
+    case TOKEN_OPENPAREN:
+        parser_match(p, TOKEN_OPENPAREN);
+        node = parse_expr_statement(p);
         parser_match(p, TOKEN_CLOSEPAREN);
-        return inner;
-    }
+        return node;
+
     // TODO: Change to printk/LOGERR for Zephyr
     default:
-        fprintf(stderr, "parse error: unexpected token %d\n", tok.token);
+        fprintf(stderr, "parse error: unexpected token %d\n", parser_current(p).token);
         exit(1);
     }
 }

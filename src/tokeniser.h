@@ -18,6 +18,8 @@ typedef enum atomic_token_t {
     TOKEN_ELSE,
     TOKEN_PLUS,
     TOKEN_MINUS,
+    TOKEN_TIMES,
+    TOKEN_DIVIDE,
     TOKEN_GREATERTHAN,
     TOKEN_LESSTHAN,
     TOKEN_EQUALTO,
