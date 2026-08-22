@@ -98,14 +98,44 @@ value_t* convert_value(node_type_t type, char* val, int len) {
         break;
     }
     case NODE_STR: {
+        // Decoding only ever shrinks, so the raw span is a safe size
         char* s = session_alloc(len + 1);
 
         if (!s) {
             return NULL;
         }
 
-        memcpy(s, val, len);
-        s[len] = '\0';
+        /* The reader drops anything outside printable ASCII, so control
+         * characters can only reach a program written as an escape pair. */
+        int out = 0;
+        for (int i = 0; i < len; i++) {
+            if (val[i] != '\\' || i + 1 >= len) {
+                s[out++] = val[i];
+                continue;
+            }
+
+            i++;
+            switch (val[i]) {
+            case 'n':
+                s[out++] = '\n';
+                break;
+            case 't':
+                s[out++] = '\t';
+                break;
+            case 'r':
+                s[out++] = '\r';
+                break;
+            case 'e':
+                s[out++] = 0x1b;
+                break;
+            default:
+                // Covers \\ and \", and leaves anything unknown as written
+                s[out++] = val[i];
+                break;
+            }
+        }
+
+        s[out] = '\0';
         value->valueType = VAR_STRING;
         value->value.string = s;
         break;

@@ -156,6 +156,14 @@ token_t tokenise(char** str) {
         token.token = TOKEN_STR;
         token.str = *str;
         while (**str != '\0' && **str != '"') {
+            /* A backslash carries the next character through, so an escaped
+             * quote does not end the string. The pair is decoded later. */
+            if (**str == '\\' && *(*str + 1) != '\0') {
+                token.len += 2;
+                (*str) += 2;
+                continue;
+            }
+
             token.len++;
             (*str)++;
         }

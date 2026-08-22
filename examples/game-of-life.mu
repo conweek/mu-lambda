@@ -255,6 +255,7 @@ print "######"
 end
 end
 ts fn st -> r0 r1 r2 r3 r4 r5:
+print "\e[H"
 rr r0
 rr r1
 rr r2
@@ -272,5 +273,6 @@ n5 = cr 5 r0 r1 r2 r3 r4 r5
 return st n0 n1 n2 n3 n4 n5
 end
 ep fn main -> :
+print "\e[2J"
 return st 2 4 7 0 0 0
 end
