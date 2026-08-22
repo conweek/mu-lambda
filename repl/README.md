@@ -1,6 +1,6 @@
 # REPL
 
-The μλ REPL, a Zephyr application.
+The μλ REPL (Read, Evaluate, Print, Loop). Allows for line by line code execution or batch code upload for quick testing.
 
 ## Setup
 
@@ -27,15 +27,15 @@ west build -b [BOARD] -d [BUILD_DIRECTORY] .
 
 ```
 ls /dev/ttyACM*
-west flash -d [BUILD_DIRECTORY] /dev/ttyACM0
+west flash -d [BUILD_DIRECTORY] /dev/ttyACMx
 ```
 
-Some runners need to be told which device to use, e.g. `--esp-device /dev/ttyACM0`.
+Some runners need to be told which device to use, e.g. `--esp-device /dev/ttyACMx`.
 
 ## Interacting with the REPL
 
 ```
-screen /dev/ttyACM0 115200
+screen /dev/ttyACMx 115200
 ```
 
 | key | effect |
@@ -56,9 +56,9 @@ comes back.
 
 Print output to terminal:
 ```
-./upload.sh program.txt /dev/ttyACM0
+./upload.sh program.txt /dev/ttyACMx
 ```
 Pipe output to a file:
 ```
-./upload.sh program.txt /dev/ttyACM0 > out.txt
+./upload.sh program.txt /dev/ttyACMx > out.txt
 ```
