@@ -1,9 +1,19 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <zephyr/kernel.h>
 
 #include "parser.h"
 #include "tokeniser.h"
+
+void ast_free(ast_node_t* node)
+{
+    if (!node)
+        return;
+    ast_free(node->left);
+    ast_free(node->right);
+    ast_free(node->cond);
+    k_free(node);
+}
 
 // Retrieves current token
 static inline token_t parser_current(parser_t* p) {
@@ -41,8 +51,7 @@ static token_t parser_match(parser_t* p, atomic_token_t type) {
         return parser_advance(p);
     }
 
-    // TODO: Change to printk/LOGERR for Zephyr
-    fprintf(stderr, "parse error: expected token %d, got %d\n", type, parser_current(p).token);
+    printk("[!] Error: expected token %d, got %d\n", type, parser_current(p).token);
     p->error = true;
     return (token_t){.token = TOKEN_ERR, .str = NULL, .len = 0};
 }
@@ -56,8 +65,8 @@ void parser_skip_newline(parser_t* p) {
 
 // Creates a new node
 static ast_node_t* make_node(node_type_t type, token_t token, ast_node_t* left, ast_node_t* right) {
-    // Malloc to be replaced with memory arena
-    ast_node_t* node = (ast_node_t*)malloc(sizeof(ast_node_t));
+    // k_malloc to be replaced with memory arena
+    ast_node_t* node = (ast_node_t*)k_malloc(sizeof(ast_node_t));
 
     if (!node) {
         return NULL;
@@ -127,10 +136,8 @@ ast_node_t* parse_program(parser_t* p) {
             entry = parse_fn(p, 0);
             break;
         default:
-            // TODO: Change to printk/LOGERR for Zephyr
-            fprintf(stderr,
-                    "parse error: EP must be followed by a function definition, got token %d\n",
-                    parser_current(p).token);
+            printk("[!] Error: EP must be followed by a function definition, got token %d\n",
+                   parser_current(p).token);
             p->error = true;
             entry = make_node(NODE_ERROR, parser_advance(p), NULL, NULL);
         }
@@ -207,9 +214,8 @@ ast_node_t* parse_statement(parser_t* p) {
             return left;
         }
     default:
-        // TODO: Change to printk/LOGERR for Zephyr
-        fprintf(stderr, "parse error: unexpected token %d, expected a statement\n",
-                parser_current(p).token);
+        printk("[!] Error: unexpected token %d, expected a statement\n",
+               parser_current(p).token);
         p->error = true;
         return make_node(NODE_ERROR, parser_advance(p), NULL, NULL);
     }
@@ -438,8 +444,7 @@ ast_node_t* parse_atomic(parser_t* p) {
         parser_match(p, TOKEN_CLOSEPAREN);
         return node;
     default:
-        // TODO: Change to printk/LOGERR for Zephyr
-        fprintf(stderr, "parse error: unexpected token %d\n", parser_current(p).token);
+        printk("[!] Error: unexpected token %d\n", parser_current(p).token);
         p->error = true;
         return make_node(NODE_ERROR, parser_advance(p), NULL, NULL);
     }

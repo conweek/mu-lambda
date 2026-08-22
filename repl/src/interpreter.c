@@ -1,13 +1,13 @@
-#include <parser.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <tokeniser.h>
+#include <zephyr/kernel.h>
+#include "tokeniser.h"
+#include "parser.h"
 #include "interpreter.h"
 
 value_t* make_int(int val)
 {
-    value_t* value = (value_t*)malloc(sizeof(value_t));
+    value_t* value = (value_t*)k_malloc(sizeof(value_t));
 
     if (!value)
         return NULL;
@@ -22,7 +22,7 @@ value_t* make_int(int val)
 
 value_t* make_no_result()
 {
-    value_t* value = (value_t*)malloc(sizeof(value_t));
+    value_t* value = (value_t*)k_malloc(sizeof(value_t));
 
     if (!value)
         return NULL;
@@ -47,11 +47,12 @@ static inline int is_str(value_t* node)
 
 value_t* builtin_print(value_t* arg)
 {
+    if (!arg)
+        return make_no_result();
     if (arg->valueType == VAR_INT)
-        printf("%d\n", arg->value.integer);
+        printk("%d\n", arg->value.integer);
     else if (arg->valueType == VAR_STRING)
-        printf("%s\n", arg->value.string);
-    fflush(stdout);
+        printk("%s\n", arg->value.string);
     return make_no_result();
 }
 
@@ -59,7 +60,7 @@ value_t* builtin_print(value_t* arg)
 // TODO: Closure
 value_t* convert_value(node_type_t type, char* val, int len)
 {
-    value_t* value = (value_t*)malloc(sizeof(value_t));
+    value_t* value = (value_t*)k_malloc(sizeof(value_t));
 
     if (!value)
         return NULL;
@@ -79,7 +80,7 @@ value_t* convert_value(node_type_t type, char* val, int len)
             break;
         }
         case NODE_STR: {
-            char* s = malloc(len + 1);
+            char* s = k_malloc(len + 1);
             memcpy(s, val, len);
             s[len] = '\0';
             value->valueType = VAR_STRING;
@@ -87,7 +88,7 @@ value_t* convert_value(node_type_t type, char* val, int len)
             break;
         }
         default:
-            free(value);
+            k_free(value);
             return NULL;
     }
 
@@ -96,10 +97,10 @@ value_t* convert_value(node_type_t type, char* val, int len)
 
 // Creates new environment
 // parent can be NULL for global env
-// Return value MUST be freed by user
+// Return value MUST be k_freed by user
 env_t* create_env(env_t* parent)
 {
-    env_t* env = (env_t*)malloc(sizeof(env_t));
+    env_t* env = (env_t*)k_malloc(sizeof(env_t));
 
     if (!env)
         return NULL;
@@ -134,13 +135,13 @@ void env_release(env_t* env)
     while (b) {
         binding_t* next = b->next;
         value_release(b->value);
-        free(b->name);
-        free(b);
+        k_free(b->name);
+        k_free(b);
         b = next;
     }
 
     env_release(env->parent);
-    free(env);
+    k_free(env);
 }
 
 void value_retain(value_t* val)
@@ -159,7 +160,7 @@ void value_release(value_t* val)
         return;
 
     if (val->valueType == VAR_STRING) {
-        free(val->value.string);
+        k_free(val->value.string);
     } else if (val->valueType == VAR_CLOSURE) {
         env_release(val->value.closure.env);
     } else if (val->valueType == VAR_THUNK) {
@@ -167,21 +168,21 @@ void value_release(value_t* val)
         value_release(val->value.thunk.arg);
     }
 
-    free(val);
+    k_free(val);
 }
 
 // Creates a binding in the current environment
-// NOTE: BINDING CREATED MUST BE FREED AT SOME POINT
+// NOTE: BINDING CREATED MUST BE k_freeD AT SOME POINT
 int create_binding(env_t* env, char* name, int nameLen, value_t* value)
 {
-    binding_t* binding = malloc(sizeof(binding_t));
+    binding_t* binding = k_malloc(sizeof(binding_t));
 
     if (!binding)
         return BINDING_ERR;
 
-    binding->name = malloc(nameLen + 1);
+    binding->name = k_malloc(nameLen + 1);
     if (!binding->name) {
-        free(binding);
+        k_free(binding);
         return BINDING_ERR;
     }
     memcpy(binding->name, name, nameLen);
@@ -234,7 +235,7 @@ value_t* env_lookup(env_t* env, char* name, int nameLen)
 
 static value_t* make_thunk(value_t* fn, value_t* arg)
 {
-    value_t* thunk = (value_t*)malloc(sizeof(value_t));
+    value_t* thunk = (value_t*)k_malloc(sizeof(value_t));
 
     if (!thunk)
         return NULL;
@@ -252,7 +253,7 @@ static value_t* make_thunk(value_t* fn, value_t* arg)
 
 void register_builtin(env_t* env, const char* name, builtin_fn fn)
 {
-    value_t* val = (value_t*)malloc(sizeof(value_t));
+    value_t* val = (value_t*)k_malloc(sizeof(value_t));
     val->valueType = VAR_BUILTIN;
     val->is_return = 0;
     val->refcount = 1;
@@ -266,24 +267,41 @@ value_t* run_interpreter(char* source)
 {
     char* ptr = source;
     token_t* tokens = get_token_list(&ptr);
-    if (!tokens)
+    if (!tokens) {
+        printk("[!] Error: failed to allocate token list\n");
         return NULL;
+    }
 
     parser_t p = parser_init(tokens);
     ast_node_t* ast = parse_program(&p);
 
     if (p.error) {
-        free(tokens);
+        ast_free(ast);
+        k_free(tokens);
         return NULL;
     }
 
     env_t* env = create_env(NULL);
+    if (!env) {
+        printk("[!] Error: failed to create environment\n");
+        ast_free(ast);
+        k_free(tokens);
+        return NULL;
+    }
+
     register_builtin(env, "print", builtin_print);
 
     value_t* result = evaluate(ast, env);
 
     env_release(env);
-    free(tokens);
+    ast_free(ast);
+    k_free(tokens);
+
+    if (!result) {
+        printk("[!] Error: evaluation failed\n");
+        return NULL;
+    }
+
     return result;
 }
 
@@ -304,6 +322,11 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
             return convert_value(NODE_STR, node->token.str, node->token.len);
         SCOPED_CASE(NODE_VAR)
             value_t* val = env_lookup(env, node->token.str, node->token.len);
+            if (!val) {
+                printk("[!] Error: undefined variable '%.*s'\n",
+                       node->token.len, node->token.str);
+                return NULL;
+            }
             value_retain(val);
             return val;
         END_SCOPE
@@ -312,7 +335,14 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
             value_t* left = evaluate_tc(node->left, env, 0);
             value_t* right = evaluate_tc(node->right, env, 0);
 
+            if (!left || !right) {
+                value_release(left);
+                value_release(right);
+                return NULL;
+            }
+
             if (left->valueType != VAR_INT || right->valueType != VAR_INT) {
+                printk("[!] Error: binary operator requires integer operands\n");
                 value_release(left);
                 value_release(right);
                 return NULL;
@@ -340,7 +370,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
                     return make_int(l * r);
                 case TOKEN_DIVIDE:
                     if (r == 0) {
-                        fprintf(stderr, "runtime error: division by zero\n");
+                        printk("[!] Error: division by zero\n");
                         return NULL;
                     }
                     return make_int(l / r);
@@ -352,21 +382,34 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
         SCOPED_CASE(NODE_NEG)
             value_t* left = evaluate_tc(node->left, env, 0);
 
-            if (left->valueType != VAR_INT)
+            if (!left)
                 return NULL;
+
+            if (left->valueType != VAR_INT) {
+                printk("[!] Error: negation requires integer operand\n");
+                value_release(left);
+                return NULL;
+            }
 
             left->value.integer = -(left->value.integer);
             return left;
         END_SCOPE
 
         SCOPED_CASE(NODE_ASSIGN)
-            if (env_lookup(env, node->token.str, node->token.len) != NULL)
+            if (env_lookup(env, node->token.str, node->token.len) != NULL) {
+                printk("[!] Error: variable '%.*s' already defined\n",
+                       node->token.len, node->token.str);
                 return NULL;
+            }
 
             value_t* left = evaluate_tc(node->left, env, 0);
-
-            if (create_binding(env, node->token.str, node->token.len, left) != SUCCESS)
+            if (!left)
                 return NULL;
+
+            if (create_binding(env, node->token.str, node->token.len, left) != SUCCESS) {
+                value_release(left);
+                return NULL;
+            }
 
             return left;
         END_SCOPE
@@ -396,7 +439,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
         END_SCOPE
 
         SCOPED_CASE(NODE_FN)
-            value_t* func = (value_t*)malloc(sizeof(value_t));
+            value_t* func = (value_t*)k_malloc(sizeof(value_t));
             func->valueType = VAR_CLOSURE;
             func->is_return = 0;
             func->refcount = 1;
@@ -411,7 +454,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
         END_SCOPE
 
         SCOPED_CASE(NODE_LAMBDA)
-            value_t* fn = malloc(sizeof(value_t));
+            value_t* fn = k_malloc(sizeof(value_t));
             fn->valueType = VAR_CLOSURE;
             fn->is_return = 0;
             fn->refcount = 1;
@@ -427,8 +470,11 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
             value_t* fn = evaluate_tc(node->left, env, 0);
             value_t* arg = evaluate_tc(node->right, env, 0);
 
-            if (!fn)
+            if (!fn || !arg) {
+                value_release(fn);
+                value_release(arg);
                 return NULL;
+            }
 
             if (fn->valueType == VAR_BUILTIN) {
                 value_t* result = fn->value.builtin(arg);
@@ -437,8 +483,12 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
                 return result;
             }
 
-            if (fn->valueType != VAR_CLOSURE)
+            if (fn->valueType != VAR_CLOSURE) {
+                printk("[!] Error: attempt to call a non-function value\n");
+                value_release(fn);
+                value_release(arg);
                 return NULL;
+            }
 
             // If we're inside a tailcall body, return a thunk
             // instead of recursing — the trampoline will handle it
@@ -460,7 +510,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
 
                 // Still need more args — return a partial application
                 if (param->right != NULL) {
-                    value_t* partial = malloc(sizeof(value_t));
+                    value_t* partial = k_malloc(sizeof(value_t));
                     partial->valueType = VAR_CLOSURE;
                     partial->is_return = 0;
                     partial->refcount = 1;
@@ -510,7 +560,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
         END_SCOPE
 
         SCOPED_CASE(NODE_TAILCALL)
-            value_t* func = (value_t*)malloc(sizeof(value_t));
+            value_t* func = (value_t*)k_malloc(sizeof(value_t));
             func->valueType = VAR_CLOSURE;
             func->is_return = 0;
             func->refcount = 1;
@@ -556,7 +606,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall)
             closure_t* cl = &fn->value.closure;
 
             if (cl->params != NULL) {
-                fprintf(stderr, "runtime error: entry point function must take no arguments\n");
+                printk("[!] Error: entry point function must take no arguments\n");
                 value_release(fn);
                 return NULL;
             }

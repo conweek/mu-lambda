@@ -1,8 +1,10 @@
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "mu_console.h"
 #include "mu_read.h"
+#include "interpreter.h"
 
 #define LINE_MAX 128
 #define STMT_MAX 4096
@@ -121,12 +123,18 @@ int main(void) {
       mu_write(SEP_OUT, sizeof(SEP_OUT) - 1);
     }
 
-    // pass 'stmt' to evaluator when implemented
-    mu_print(stmt, len);
-
-    // Add newline if text didnt end with one
-    if (stmt[len - 1] != '\n') {
-      mu_write("\r\n", 2);
+    value_t* result = run_interpreter(stmt);
+    if (result) {
+      if (result->valueType == VAR_INT) {
+        char buf[16];
+        int n = snprintf(buf, sizeof(buf), "%d", result->value.integer);
+        mu_write(buf, n);
+        mu_write("\r\n", 2);
+      } else if (result->valueType == VAR_STRING) {
+        mu_write(result->value.string, strlen(result->value.string));
+        mu_write("\r\n", 2);
+      }
+      value_release(result);
     }
 
     if (batch) {

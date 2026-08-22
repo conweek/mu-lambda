@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <zephyr/kernel.h>
 #include "tokeniser.h"
 
 token_t tokenise(char** str)
@@ -193,9 +194,9 @@ token_t* get_token_list(char** str)
 {
     // Worst case, str is entirely packed with valid tokens
     // (to be replaced with memory arena)
-    token_t* tokenList = (token_t*)malloc(sizeof(token_t) * strlen(*str));
+    token_t* tokenList = (token_t*)k_malloc(sizeof(token_t) * strlen(*str));
 
-    // Check malloc succeeded 
+    // Check k_malloc succeeded 
     if (!tokenList)
         return NULL;
 

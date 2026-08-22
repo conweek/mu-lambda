@@ -60,4 +60,6 @@ ast_node_t* parse_factor(parser_t* p);
 ast_node_t* parse_call(parser_t* p);
 ast_node_t* parse_atomic(parser_t* p);
 
+void ast_free(ast_node_t* node);
+
 #endif
