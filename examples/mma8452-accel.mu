@@ -13,23 +13,23 @@
 //   0x05 = OUT_Z_MSB
 
 ep fn main -> :
-    wreg = i2cWrite "i2c0" 29
+    wreg = i2cWrite "i2c1" 29
 
     // set pointer to OUT_X_MSB then read
     wreg 1
-    xval = i2cRead "i2c0" 29
+    xval = i2cRead "i2c1" 29
     print "X:"
     print xval
 
     // set pointer to OUT_Y_MSB then read
     wreg 3
-    yval = i2cRead "i2c0" 29
+    yval = i2cRead "i2c1" 29
     print "Y:"
     print yval
 
     // set pointer to OUT_Z_MSB then read
     wreg 5
-    zval = i2cRead "i2c0" 29
+    zval = i2cRead "i2c1" 29
     print "Z:"
     print zval
 
