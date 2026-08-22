@@ -1,5 +1,6 @@
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/i2c.h>
 #include "interpreter.h"
 #include "zephyr/dt-bindings/gpio/gpio.h"
 #include "builtins.h"
@@ -155,6 +156,140 @@ value_t* builtin_gpio_read(value_t* arg) {
     val->is_return = 0;
     val->refcount = 1;
     val->value.native.fn = gpio_read_pin;
+    val->value.native.ctx = ctx;
+
+    return val;
+}
+
+typedef struct {
+    const struct device* i2c;
+    uint16_t addr;
+} i2c_ctx_t;
+
+static value_t* i2c_write_byte(void* ctx, value_t* arg) {
+    if (!arg || arg->valueType != VAR_INT) {
+        BUILTIN_ERR("i2cWrite");
+    }
+
+    i2c_ctx_t* c = (i2c_ctx_t*)ctx;
+    uint8_t byte = (uint8_t)arg->value.integer;
+
+    int ret = i2c_write(c->i2c, &byte, 1, c->addr);
+    if (ret < 0) {
+        printk("[!] Error: i2cWrite failed (%d)\n", ret);
+        return make_error();
+    }
+
+    return make_no_result();
+}
+
+static value_t* i2c_write_addr(void* ctx, value_t* arg) {
+    if (!arg || arg->valueType != VAR_INT) {
+        BUILTIN_ERR("i2cWrite");
+    }
+
+    i2c_ctx_t* prev = (i2c_ctx_t*)ctx;
+
+    i2c_ctx_t* next = (i2c_ctx_t*)memrina_alloc(mu_session, sizeof(i2c_ctx_t));
+    if (!next) {
+        return NULL;
+    }
+
+    next->i2c = prev->i2c;
+    next->addr = (uint16_t)arg->value.integer;
+
+    value_t* val = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    if (!val) {
+        return NULL;
+    }
+
+    val->valueType = VAR_NATIVE_CLOSURE;
+    val->is_return = 0;
+    val->refcount = 1;
+    val->value.native.fn = i2c_write_byte;
+    val->value.native.ctx = next;
+
+    return val;
+}
+
+value_t* builtin_i2c_write(value_t* arg) {
+    if (!arg || arg->valueType != VAR_STRING) {
+        BUILTIN_ERR("i2cWrite");
+    }
+
+    const struct device* i2c = device_get_binding(arg->value.string);
+    if (!i2c || !device_is_ready(i2c)) {
+        printk("[!] Error: i2cWrite device '%s' not ready\n", arg->value.string);
+        return make_error();
+    }
+
+    i2c_ctx_t* ctx = (i2c_ctx_t*)memrina_alloc(mu_session, sizeof(i2c_ctx_t));
+    if (!ctx) {
+        return NULL;
+    }
+
+    ctx->i2c = i2c;
+    ctx->addr = 0;
+
+    value_t* val = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    if (!val) {
+        return NULL;
+    }
+
+    val->valueType = VAR_NATIVE_CLOSURE;
+    val->is_return = 0;
+    val->refcount = 1;
+    val->value.native.fn = i2c_write_addr;
+    val->value.native.ctx = ctx;
+
+    return val;
+}
+
+static value_t* i2c_read_addr(void* ctx, value_t* arg) {
+    if (!arg || arg->valueType != VAR_INT) {
+        BUILTIN_ERR("i2cRead");
+    }
+
+    i2c_ctx_t* c = (i2c_ctx_t*)ctx;
+    uint8_t byte = 0;
+
+    int ret = i2c_read(c->i2c, &byte, 1, (uint16_t)arg->value.integer);
+    if (ret < 0) {
+        printk("[!] Error: i2cRead failed (%d)\n", ret);
+        return make_error();
+    }
+
+    return make_int((int)byte);
+}
+
+value_t* builtin_i2c_read(value_t* arg) {
+    if (!arg || arg->valueType != VAR_STRING) {
+        BUILTIN_ERR("i2cRead");
+    }
+
+    const struct device* i2c = device_get_binding(arg->value.string);
+    if (!i2c || !device_is_ready(i2c)) {
+        printk("[!] Error: i2cRead device '%s' not ready\n", arg->value.string);
+        return make_error();
+    }
+
+    i2c_ctx_t* ctx = (i2c_ctx_t*)memrina_alloc(mu_session, sizeof(i2c_ctx_t));
+    if (!ctx) {
+        return NULL;
+    }
+
+    ctx->i2c = i2c;
+    ctx->addr = 0;
+
+    value_t* val = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    if (!val) {
+        return NULL;
+    }
+
+    val->valueType = VAR_NATIVE_CLOSURE;
+    val->is_return = 0;
+    val->refcount = 1;
+    val->value.native.fn = i2c_read_addr;
     val->value.native.ctx = ctx;
 
     return val;

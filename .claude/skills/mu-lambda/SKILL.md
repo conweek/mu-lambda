@@ -58,7 +58,7 @@ few real quirks the docs gloss over.
 
 ### Built-ins
 
-Four are registered (`repl/src/builtins.c`); anything else (`int`, `getLine`, string/list ops) does
+Six are registered (`repl/src/builtins.c`); anything else (`int`, `getLine`, string/list ops) does
 not exist — do not call it. A built-in given the wrong argument type is now a hard runtime error
 (it returns an internal error value that aborts evaluation), not a silent no-op.
 
@@ -68,15 +68,18 @@ not exist — do not call it. A built-in given the wrong argument type is now a 
 | `sleep n` | 1 arg: int | blocks for `n` milliseconds (`k_msleep`), evaluates to no-result |
 | `gpioSet dev pin val` | 3 args, curried: string, int, int | configures `pin` on device `dev` as `OUTPUT \| PULL_UP` and sets it to `val` (0/1); evaluates to no-result |
 | `gpioRead dev pin` | 2 args, curried: string, int | configures `pin` on device `dev` as `INPUT` and returns its level as an int |
+| `i2cWrite dev addr byte` | 3 args, curried: string, int, int | writes `byte` to I2C slave at `addr` on bus `dev`; evaluates to no-result |
+| `i2cRead dev addr` | 2 args, curried: string, int | reads one byte from I2C slave at `addr` on bus `dev`; returns the byte as an int |
 
-`gpioSet`/`gpioRead` are curried the same way user-defined functions are — `gpioSet dev` alone
-returns a partially-applied value waiting on `pin`, etc. `dev` is looked up with
-`device_get_binding`, so it must match a GPIO device's `label` in the *target board's*
-devicetree — this is board-specific and there is no such labeled GPIO node in the `native_sim`
-board used for `repl/build.sh`, so a program calling `gpioSet`/`gpioRead` won't find a ready device
-there; it needs a real board (or a `native_sim` overlay adding a labeled `gpio-emul` node) to
-actually exercise. `gpioSet` always configures the pin `OUTPUT | PULL_UP` (no way to request a
-plain output yet — a known TODO in the source).
+All hardware builtins (`gpioSet`, `gpioRead`, `i2cWrite`, `i2cRead`) are curried the same way
+user-defined functions are — `gpioSet dev` alone returns a partially-applied value waiting on
+`pin`, etc. `dev` is looked up with `device_get_binding`, so it must match a device's `label` in
+the *target board's* devicetree — this is board-specific and there is no such labeled node in the
+`native_sim` board used for `repl/build.sh`, so a program calling these won't find a ready device
+there; it needs a real board (or a `native_sim` overlay adding labeled emulation nodes) to actually
+exercise. `gpioSet` always configures the pin `OUTPUT | PULL_UP` (no way to request a plain output
+yet — a known TODO in the source). I2C builtins require `CONFIG_I2C=y` in `prj.conf` and the I2C
+bus node needs a `label` property in the board's DTS overlay for `device_get_binding` to find it.
 
 ## Grammar (as actually implemented by repl/src/parser.c)
 
@@ -200,12 +203,36 @@ ep fn main -> :
 end
 ```
 
+Writing to an I2C device in a loop (board-specific: swap `"i2c0"` for a bus label in the target
+board's devicetree, and `0x3C` for the slave address):
+
+```
+ep fn main -> :
+    i2cWrite "i2c0" 60 255
+    sleep 1000
+    return main
+end
+```
+
+Partial application works naturally — bind a device+address once and reuse it:
+
+```
+ep fn main -> :
+    oled = i2cWrite "i2c0" 60
+    oled 255
+    oled 0
+    val = i2cRead "i2c0" 60
+    print val
+    return main
+end
+```
+
 ## Writing a new program — checklist
 
 1. Every `fn`/`ts fn` block ends with `end`; every `if`/`else` shares one `end`.
 2. Exactly one `ep fn <name> -> :` (or `ep ts fn`), no params, placed last.
 3. No `[...]` list literals, no unregistered built-ins (only `print`, `sleep`, `gpioSet`,
-   `gpioRead` exist).
+   `gpioRead`, `i2cWrite`, `i2cRead` exist).
 4. Negative literal arguments and bare lambdas are parenthesized (see Gotchas).
 5. No name is assigned twice across nested scopes (function params excepted).
 6. Comparisons are not chained.
