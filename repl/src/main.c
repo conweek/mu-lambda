@@ -163,7 +163,6 @@ int main(void) {
                 mu_write(result->value.string, strlen(result->value.string));
                 mu_write("\r\n", 2);
             }
-            value_release(result);
         }
 
         // Nothing was defined, so none of this needs to survive

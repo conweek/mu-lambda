@@ -71,10 +71,6 @@ struct value {
 };
 
 env_t* create_env(env_t* parent);
-void env_retain(env_t* env);
-void env_release(env_t* env);
-void value_retain(value_t* val);
-void value_release(value_t* val);
 int create_binding(env_t* env, char* name, int nameLen, value_t* value);
 value_t* env_lookup(env_t* env, char* name, int nameLen);
 value_t* evaluate(ast_node_t* node, env_t* env);

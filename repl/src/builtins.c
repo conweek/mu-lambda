@@ -372,5 +372,4 @@ void register_builtin(env_t* env, const char* name, builtin_fn fn) {
     val->value.builtin = fn;
 
     create_binding(env, (char*)name, strlen(name), val);
-    value_release(val);
 }

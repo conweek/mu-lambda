@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <zephyr/kernel.h>
@@ -7,8 +8,25 @@
 #include "builtins.h"
 #include "mu_arena.h"
 
+/* The arena has no individual free, so a long running program can fill it. The
+ * makers below all fail by returning NULL, which unwinds silently, so say it
+ * once per submission rather than leaving the program to stop mid output. */
+static bool oom_reported;
+
+static void* session_alloc(size_t nbytes) {
+    void* ptr = memrina_alloc(mu_session, nbytes);
+
+    if (!ptr && !oom_reported) {
+        printk("[!] Error: session arena exhausted, %zu bytes free\n",
+               memrina_remaining(mu_session));
+        oom_reported = true;
+    }
+
+    return ptr;
+}
+
 value_t* make_int(int val) {
-    value_t* value = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    value_t* value = (value_t*)session_alloc(sizeof(value_t));
 
     if (!value) {
         return NULL;
@@ -23,7 +41,7 @@ value_t* make_int(int val) {
 }
 
 value_t* make_no_result() {
-    value_t* value = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    value_t* value = (value_t*)session_alloc(sizeof(value_t));
 
     if (!value) {
         return NULL;
@@ -37,7 +55,7 @@ value_t* make_no_result() {
 }
 
 value_t* make_error() {
-    value_t* value = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    value_t* value = (value_t*)session_alloc(sizeof(value_t));
 
     if (!value) {
         return NULL;
@@ -59,7 +77,7 @@ static inline int is_str(value_t* node) {
 }
 
 value_t* convert_value(node_type_t type, char* val, int len) {
-    value_t* value = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    value_t* value = (value_t*)session_alloc(sizeof(value_t));
 
     if (!value) {
         return NULL;
@@ -80,7 +98,12 @@ value_t* convert_value(node_type_t type, char* val, int len) {
         break;
     }
     case NODE_STR: {
-        char* s = memrina_alloc(mu_session, len + 1);
+        char* s = session_alloc(len + 1);
+
+        if (!s) {
+            return NULL;
+        }
+
         memcpy(s, val, len);
         s[len] = '\0';
         value->valueType = VAR_STRING;
@@ -95,7 +118,7 @@ value_t* convert_value(node_type_t type, char* val, int len) {
 }
 
 env_t* create_env(env_t* parent) {
-    env_t* env = (env_t*)memrina_alloc(mu_session, sizeof(env_t));
+    env_t* env = (env_t*)session_alloc(sizeof(env_t));
 
     if (!env) {
         return NULL;
@@ -106,37 +129,17 @@ env_t* create_env(env_t* parent) {
     env->count = 0;
     env->refcount = 1;
 
-    if (parent) {
-        env_retain(parent);
-    }
-
     return env;
 }
 
-void env_retain(env_t* env) {
-    (void)env;
-}
-
-void env_release(env_t* env) {
-    (void)env;
-}
-
-void value_retain(value_t* val) {
-    (void)val;
-}
-
-void value_release(value_t* val) {
-    (void)val;
-}
-
 int create_binding(env_t* env, char* name, int nameLen, value_t* value) {
-    binding_t* binding = memrina_alloc(mu_session, sizeof(binding_t));
+    binding_t* binding = session_alloc(sizeof(binding_t));
 
     if (!binding) {
         return MU_BINDING_ERR;
     }
 
-    binding->name = memrina_alloc(mu_session, nameLen + 1);
+    binding->name = session_alloc(nameLen + 1);
     if (!binding->name) {
         return MU_BINDING_ERR;
     }
@@ -144,7 +147,6 @@ int create_binding(env_t* env, char* name, int nameLen, value_t* value) {
     binding->name[nameLen] = '\0';
 
     binding->value = value;
-    value_retain(value);
     binding->next = NULL;
 
     if (env->bindings == NULL) {
@@ -189,8 +191,173 @@ value_t* env_lookup(env_t* env, char* name, int nameLen) {
     return NULL;
 }
 
+/* Only a return, or an if that might hold one, sits in tail position. Handing
+ * in_tailcall to every statement in a block turns the first bare call into a
+ * thunk, and since thunks are flagged is_return the block unwinds on its first
+ * line instead of running the rest of the body. */
+static inline int stmt_tailcall(ast_node_t* stmt, int in_tailcall) {
+    if (!in_tailcall || !stmt) {
+        return 0;
+    }
+
+    return (stmt->type == NODE_RETURN || stmt->type == NODE_IF);
+}
+
+/* Statements that leave a binding behind in the current scope. Their
+ * allocations outlive them, everything else is reached only for its side
+ * effects and can be handed back to the arena as soon as it returns. */
+static inline int stmt_binds(ast_node_t* stmt) {
+    if (!stmt) {
+        return 1;
+    }
+
+    return (stmt->type == NODE_ASSIGN || stmt->type == NODE_FN ||
+            stmt->type == NODE_TAILCALL || stmt->type == NODE_ENTRY);
+}
+
+#define TC_MAX_SAVED 24
+#define TC_NAME_MAX  31
+
+/* One tail call's worth of bound arguments, lifted out of the arena so the
+ * pass that produced them can be rewound. */
+typedef struct {
+    char name[TC_NAME_MAX + 1];
+    int len;
+    int value;
+} tc_binding_t;
+
+static tc_binding_t tc_saved[TC_MAX_SAVED];
+
+// Was this allocated after the checkpoint, ie. would a rewind take it away
+static int above_check(const void* ptr, Memrina_Checkpoint cp) {
+    const uint8_t* p = (const uint8_t*)ptr;
+
+    if (!p) {
+        return 0;
+    }
+
+    return (p >= mu_session->base + cp.offset) && (p < mu_session->base + mu_session->size);
+}
+
+/* A ts loop discards everything each pass except the function it is about to
+ * call and the argument going into it. Lift those clear of the arena, rewind
+ * to cp, and build them again, so the loop runs in constant memory instead of
+ * growing until it starves. Returns 1 when it reclaimed, 0 when the state was
+ * not liftable and the arena was left alone, -1 when the arena ran out.
+ *
+ * Only integers can be carried over. A closure or string still points at
+ * memory the rewind would take, so those cases bail out and simply keep
+ * their allocations. */
+static int tc_reclaim(value_t** fnp, value_t** argp, Memrina_Checkpoint cp) {
+    value_t* fn = *fnp;
+    value_t* arg = *argp;
+
+    if (!fn || !arg) {
+        return 0;
+    }
+
+    int arg_is_int = (arg->valueType == VAR_INT);
+    if (!arg_is_int && above_check(arg, cp)) {
+        return 0;
+    }
+    int arg_val = arg_is_int ? arg->value.integer : 0;
+
+    ast_node_t* params = NULL;
+    ast_node_t* body = NULL;
+    int tailcall = 0;
+    env_t* base_env = NULL;
+    int saved = 0;
+
+    // A closure older than the checkpoint survives the rewind untouched
+    if (above_check(fn, cp)) {
+        if (fn->valueType != VAR_CLOSURE) {
+            return 0;
+        }
+
+        params = fn->value.closure.params;
+        body = fn->value.closure.body;
+        tailcall = fn->value.closure.tailcall;
+
+        // Walk out to the first scope that predates the loop, saving as we go
+        env_t* scope = fn->value.closure.env;
+        while (scope != NULL && above_check(scope, cp)) {
+            for (binding_t* b = scope->bindings; b != NULL; b = b->next) {
+                if (saved >= TC_MAX_SAVED || !b->value || b->value->valueType != VAR_INT) {
+                    return 0;
+                }
+
+                size_t len = strlen(b->name);
+                if (len > TC_NAME_MAX) {
+                    return 0;
+                }
+
+                memcpy(tc_saved[saved].name, b->name, len + 1);
+                tc_saved[saved].len = (int)len;
+                tc_saved[saved].value = b->value->value.integer;
+                saved++;
+            }
+            scope = scope->parent;
+        }
+
+        if (scope == NULL) {
+            return 0;
+        }
+
+        base_env = scope;
+    }
+
+    // Past this point the old values are gone, only allocation can still fail
+    memrina_restore_check(mu_session, cp);
+
+    if (params != NULL) {
+        env_t* scope = base_env;
+
+        if (saved > 0) {
+            scope = create_env(base_env);
+            if (!scope) {
+                return -1;
+            }
+
+            /* Saved innermost first, and create_binding appends, so lookup
+             * still finds the same binding it would have before. */
+            for (int i = 0; i < saved; i++) {
+                value_t* val = make_int(tc_saved[i].value);
+
+                if (!val ||
+                    create_binding(scope, tc_saved[i].name, tc_saved[i].len, val) != MU_SUCCESS) {
+                    return -1;
+                }
+            }
+        }
+
+        value_t* rebuilt = session_alloc(sizeof(value_t));
+        if (!rebuilt) {
+            return -1;
+        }
+
+        rebuilt->valueType = VAR_CLOSURE;
+        rebuilt->is_return = 0;
+        rebuilt->refcount = 1;
+        rebuilt->value.closure.params = params;
+        rebuilt->value.closure.body = body;
+        rebuilt->value.closure.env = scope;
+        rebuilt->value.closure.tailcall = tailcall;
+        *fnp = rebuilt;
+    }
+
+    if (arg_is_int) {
+        value_t* rebuilt = make_int(arg_val);
+        if (!rebuilt) {
+            return -1;
+        }
+        *argp = rebuilt;
+    }
+
+    return 1;
+}
+
 static value_t* make_thunk(value_t* fn, value_t* arg) {
-    value_t* thunk = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+    value_t* thunk = (value_t*)session_alloc(sizeof(value_t));
 
     if (!thunk) {
         return NULL;
@@ -201,14 +368,15 @@ static value_t* make_thunk(value_t* fn, value_t* arg) {
     thunk->refcount = 1;
     thunk->value.thunk.fn = fn;
     thunk->value.thunk.arg = arg;
-    value_retain(fn);
-    value_retain(arg);
 
     return thunk;
 }
 
 value_t* run_interpreter(char* source, env_t* env) {
     char* ptr = source;
+
+    oom_reported = false;
+
     token_t* tokens = get_token_list(&ptr);
     if (!tokens) {
         printk("[!] Error: failed to allocate token list\n");
@@ -244,6 +412,12 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         return NULL;
     }
 
+    // Once the arena is gone nothing further can be built, unwind instead of
+    // failing one allocation at a time all the way down the program
+    if (oom_reported) {
+        return NULL;
+    }
+
     switch (node->type) {
     case NODE_ERROR:
         return NULL;
@@ -258,7 +432,6 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
             printk("[!] Error: undefined variable '%.*s'\n", node->token.len, node->token.str);
             return NULL;
         }
-        value_retain(val);
         return val;
         END_SCOPE
 
@@ -267,22 +440,16 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         value_t* right = evaluate_tc(node->right, env, 0);
 
         if (!left || !right) {
-            value_release(left);
-            value_release(right);
             return NULL;
         }
 
         if (left->valueType != VAR_INT || right->valueType != VAR_INT) {
             printk("[!] Error: binary operator requires integer operands\n");
-            value_release(left);
-            value_release(right);
             return NULL;
         }
 
         int l = left->value.integer;
         int r = right->value.integer;
-        value_release(left);
-        value_release(right);
 
         switch (node->token.token) {
         case TOKEN_XOR:
@@ -333,7 +500,6 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
 
         if (left->valueType != VAR_INT) {
             printk("[!] Error: compliment requires integer operand\n");
-            value_release(left);
             return NULL;
         }
 
@@ -350,7 +516,6 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
 
         if (left->valueType != VAR_INT) {
             printk("[!] Error: negation requires integer operand\n");
-            value_release(left);
             return NULL;
         }
 
@@ -365,13 +530,27 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
             return NULL;
         }
 
+        /* Working out the right hand side can burn a lot of arena to arrive at
+         * one number. Keep the number, hand the working back. */
+        Memrina_Checkpoint cp = memrina_set_check(mu_session);
+
         value_t* left = evaluate_tc(node->left, env, 0);
         if (!left) {
             return NULL;
         }
 
+        // Only a scalar can be lifted clear, anything else still points into it
+        if (left->valueType == VAR_INT) {
+            int val = left->value.integer;
+            memrina_restore_check(mu_session, cp);
+            left = make_int(val);
+
+            if (!left) {
+                return NULL;
+            }
+        }
+
         if (create_binding(env, node->token.str, node->token.len, left) != MU_SUCCESS) {
-            value_release(left);
             return NULL;
         }
 
@@ -388,45 +567,47 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         if (is_int(condition) && condition->value.integer != 0) {
             env_t* child = create_env(env);
             value_t* result = evaluate_tc(node->left, child, in_tailcall);
-            value_release(condition);
-            env_release(child);
             return result;
         } else if (node->right != NULL) {
             env_t* child = create_env(env);
             value_t* result = evaluate_tc(node->right, child, in_tailcall);
-            value_release(condition);
-            env_release(child);
             return result;
         }
 
-        value_release(condition);
         return make_no_result();
         END_SCOPE
 
         SCOPED_CASE(NODE_FN)
-        value_t* func = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+        value_t* func = (value_t*)session_alloc(sizeof(value_t));
+
+        if (!func) {
+            return NULL;
+        }
+
         func->valueType = VAR_CLOSURE;
         func->is_return = 0;
         func->refcount = 1;
         func->value.closure.env = env;
-        env_retain(env);
         func->value.closure.tailcall = 0;
         func->value.closure.body = node->right;
         func->value.closure.params = node->left;
         create_binding(env, node->token.str, node->token.len, func);
-        value_release(func);
         return make_no_result();
         END_SCOPE
 
         SCOPED_CASE(NODE_LAMBDA)
-        value_t* fn = memrina_alloc(mu_session, sizeof(value_t));
+        value_t* fn = session_alloc(sizeof(value_t));
+
+        if (!fn) {
+            return NULL;
+        }
+
         fn->valueType = VAR_CLOSURE;
         fn->is_return = 0;
         fn->refcount = 1;
         fn->value.closure.params = node->left;
         fn->value.closure.body = node->right;
         fn->value.closure.env = env;
-        env_retain(env);
         fn->value.closure.tailcall = 0;
         return fn;
         END_SCOPE
@@ -436,17 +617,12 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         value_t* arg = evaluate_tc(node->right, env, 0);
 
         if (!fn || !arg) {
-            value_release(fn);
-            value_release(arg);
             return NULL;
         }
 
         if (fn->valueType == VAR_BUILTIN) {
             value_t* result = fn->value.builtin(arg);
-            value_release(fn);
-            value_release(arg);
             if (result && result->valueType == VAR_ERROR) {
-                value_release(result);
                 return NULL;
             }
             return result;
@@ -454,10 +630,7 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
 
         if (fn->valueType == VAR_NATIVE_CLOSURE) {
             value_t* result = fn->value.native.fn(fn->value.native.ctx, arg);
-            value_release(fn);
-            value_release(arg);
             if (result && result->valueType == VAR_ERROR) {
-                value_release(result);
                 return NULL;
             }
             return result;
@@ -465,17 +638,17 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
 
         if (fn->valueType != VAR_CLOSURE) {
             printk("[!] Error: attempt to call a non-function value\n");
-            value_release(fn);
-            value_release(arg);
             return NULL;
         }
 
         if (in_tailcall) {
             value_t* thunk = make_thunk(fn, arg);
-            value_release(fn);
-            value_release(arg);
             return thunk;
         }
+
+        /* fn and arg were built before this point, so a rewind to here keeps
+         * them and drops only what the loop below allocates. */
+        Memrina_Checkpoint cp = memrina_set_check(mu_session);
 
         for (;;) {
             closure_t* cl = &fn->value.closure;
@@ -483,20 +656,21 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
 
             ast_node_t* param = cl->params;
             create_binding(call_env, param->token.str, param->token.len, arg);
-            value_release(arg);
 
             if (param->right != NULL) {
-                value_t* partial = memrina_alloc(mu_session, sizeof(value_t));
+                value_t* partial = session_alloc(sizeof(value_t));
+
+                if (!partial) {
+                    return NULL;
+                }
+
                 partial->valueType = VAR_CLOSURE;
                 partial->is_return = 0;
                 partial->refcount = 1;
                 partial->value.closure.params = param->right;
                 partial->value.closure.body = cl->body;
                 partial->value.closure.env = call_env;
-                env_retain(call_env);
                 partial->value.closure.tailcall = cl->tailcall;
-                value_release(fn);
-                env_release(call_env);
                 return partial;
             }
 
@@ -506,15 +680,15 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
                 result->is_return = 0;
             }
 
-            value_release(fn);
-            env_release(call_env);
 
             if (result && result->valueType == VAR_THUNK) {
                 fn = result->value.thunk.fn;
                 arg = result->value.thunk.arg;
-                value_retain(fn);
-                value_retain(arg);
-                value_release(result);
+
+                if (tc_reclaim(&fn, &arg, cp) < 0) {
+                    return NULL;
+                }
+
                 continue;
             }
 
@@ -534,17 +708,20 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
         END_SCOPE
 
         SCOPED_CASE(NODE_TAILCALL)
-        value_t* func = (value_t*)memrina_alloc(mu_session, sizeof(value_t));
+        value_t* func = (value_t*)session_alloc(sizeof(value_t));
+
+        if (!func) {
+            return NULL;
+        }
+
         func->valueType = VAR_CLOSURE;
         func->is_return = 0;
         func->refcount = 1;
         func->value.closure.env = env;
-        env_retain(env);
         func->value.closure.tailcall = 1;
         func->value.closure.body = node->right;
         func->value.closure.params = node->left;
         create_binding(env, node->token.str, node->token.len, func);
-        value_release(func);
         return make_no_result();
         END_SCOPE
 
@@ -554,16 +731,36 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
 
         while (curr != NULL) {
             if (curr->type != NODE_BLOCK) {
-                value_release(result);
-                result = evaluate_tc(curr, env, in_tailcall);
+                result = evaluate_tc(curr, env, stmt_tailcall(curr, in_tailcall));
                 break;
             }
 
-            value_release(result);
-            result = evaluate_tc(curr->left, env, in_tailcall);
+            ast_node_t* stmt = curr->left;
 
-            if (result && result->is_return) {
+            /* Nothing this statement allocates survives it unless it binds, so
+             * rewind the arena once it has run. Without this a body like the
+             * chain of ifs in a lookup table costs arena on every branch it
+             * tests and a long running program starves. */
+            int reclaim = curr->right != NULL && !stmt_binds(stmt);
+            Memrina_Checkpoint cp = memrina_set_check(mu_session);
+
+            result = evaluate_tc(stmt, env, stmt_tailcall(stmt, in_tailcall));
+
+            if (!result) {
+                return NULL;
+            }
+
+            if (result->is_return) {
                 return result;
+            }
+
+            if (reclaim) {
+                memrina_restore_check(mu_session, cp);
+                result = make_no_result();
+
+                if (!result) {
+                    return NULL;
+                }
             }
 
             curr = curr->right;
@@ -580,14 +777,16 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
             return NULL;
         }
 
-        value_retain(fn);
         closure_t* cl = &fn->value.closure;
 
         if (cl->params != NULL) {
             printk("[!] Error: entry point function must take no arguments\n");
-            value_release(fn);
             return NULL;
         }
+
+        /* An entry point that returns itself runs again, and nothing it built
+         * carries over to the next pass, so each one starts from here. */
+        Memrina_Checkpoint cp = memrina_set_check(mu_session);
 
         for (;;) {
             env_t* call_env = create_env(cl->env);
@@ -595,14 +794,12 @@ value_t* evaluate_tc(ast_node_t* node, env_t* env, int in_tailcall) {
             if (result) {
                 result->is_return = 0;
             }
-            env_release(call_env);
 
             if (result == fn) {
-                value_release(result);
+                memrina_restore_check(mu_session, cp);
                 continue;
             }
 
-            value_release(fn);
             return result;
         }
         END_SCOPE
